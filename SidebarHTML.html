@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; padding: 10px; }
+    input { width: 90%; padding: 8px; margin-bottom: 5px; }
+    button { width: 95%; padding: 10px; background: #1a73e8; color: white; border: none; cursor: pointer; }
+    #status { color: #666; font-size: 11px; margin: 5px 0; }
+    #res { margin-top: 10px; font-size: 13px; height: 80vh; overflow-y: auto; }
+    .campo { border-bottom: 1px solid #eee; padding: 5px 0; }
+    .label { color: blue; font-weight: bold; font-size: 10px; display: block; }
+  </style>
+</head>
+<body>
+<input type="text" id="ref" placeholder="Ej: N3011" onkeydown="if(event.key==='Enter') buscar()">
+  <button onclick="buscar()">CONSULTAR</button>
+  <div id="status">Esperando...</div>
+  <div id="res"></div>
+
+  <script>
+  function buscar() {
+  const val = document.getElementById('ref').value.trim().toUpperCase();
+  const valConN = val.startsWith('N') ? val : 'N' + val;
+  const status = document.getElementById('status');
+  const resDiv = document.getElementById('res');
+
+  if(!val) { status.innerHTML = "Escribe algo"; return; }
+  
+  status.innerHTML = "⏳ Llamando a Google...";
+  resDiv.innerHTML = "";
+
+  google.script.run
+    .withSuccessHandler(response => {
+      status.innerHTML = "✅ Respuesta recibida";
+      if(response.startsWith("Error") || response.startsWith("No se encontró")) {
+        resDiv.innerHTML = "<b style='color:red'>" + response + "</b>";
+        return;
+      }
+      const info = JSON.parse(response);
+      let h = "";
+      for(let k in info) {
+let valor = info[k] != null ? String(info[k]) : "";
+if(valor.startsWith("http")) {
+  valor = `<a href="${valor}" target="_blank" rel="noopener noreferrer">${valor}</a>`;
+}
+h += `<div class="campo"><span class="label">${k}</span>${valor}</div>`;
+      }
+      resDiv.innerHTML = h;
+    })
+    .withFailureHandler(err => {
+      status.innerHTML = "❌ ERROR DE CONEXIÓN";
+      resDiv.innerHTML = "Detalle: " + err.message;
+    })
+    .buscarNaveEnServidor(valConN);
+}
+  </script>
+</body>
+</html>
