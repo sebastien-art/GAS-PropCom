@@ -4,55 +4,97 @@
   <style>
     body { font-family: sans-serif; padding: 10px; }
     input { width: 90%; padding: 8px; margin-bottom: 5px; }
-    button { width: 95%; padding: 10px; background: #1a73e8; color: white; border: none; cursor: pointer; }
+    button { width: 95%; padding: 10px; background: #1a73e8; color: white; border: none; cursor: pointer; margin-bottom: 5px; }
+    #btnFicha { background: #34a853; display: none; margin-top: 10px; font-weight: bold; }
     #status { color: #666; font-size: 11px; margin: 5px 0; }
-    #res { margin-top: 10px; font-size: 13px; height: 80vh; overflow-y: auto; }
+    #res { margin-top: 10px; font-size: 13px; height: 70vh; overflow-y: auto; }
     .campo { border-bottom: 1px solid #eee; padding: 5px 0; }
     .label { color: blue; font-weight: bold; font-size: 10px; display: block; }
+    .error-pdf { color: #d93025; font-size: 12px; font-weight: bold; display: none; margin-top: 5px; }
   </style>
 </head>
 <body>
-<input type="text" id="ref" placeholder="Ej: N3011" onkeydown="if(event.key==='Enter') buscar()">
+  <input type="text" id="ref" placeholder="Ej: N3011" onkeydown="if(event.key==='Enter') buscar()">
   <button onclick="buscar()">CONSULTAR</button>
+  
+  <button id="btnFicha" onclick="abrirFicha()">📄 ABRIR FICHA TÉCNICA PDF</button>
+  <div id="msgErrorPdf" class="error-pdf">❌ No hay PDF para esta REF</div>
+  
   <div id="status">Esperando...</div>
   <div id="res"></div>
 
   <script>
+  let linkFichaMemoria = ""; // Almacena el link para apertura instantánea
+
   function buscar() {
-  const val = document.getElementById('ref').value.trim().toUpperCase();
-  const valConN = val.startsWith('N') ? val : 'N' + val;
-  const status = document.getElementById('status');
-  const resDiv = document.getElementById('res');
+    const val = document.getElementById('ref').value.trim().toUpperCase();
+    const valConN = val.startsWith('N') ? val : 'N' + val;
+    
+    const status = document.getElementById('status');
+    const resDiv = document.getElementById('res');
+    const btnFicha = document.getElementById('btnFicha');
+    const msgError = document.getElementById('msgErrorPdf');
 
-  if(!val) { status.innerHTML = "Escribe algo"; return; }
-  
-  status.innerHTML = "⏳ Llamando a Google...";
-  resDiv.innerHTML = "";
+    if(!val) { status.innerHTML = "Escribe algo"; return; }
+    
+    status.innerHTML = "⚡ Accediendo al archivo...";
+    resDiv.innerHTML = "";
+    btnFicha.style.display = "none";
+    msgError.style.display = "none";
+    linkFichaMemoria = "";
 
-  google.script.run
-    .withSuccessHandler(response => {
-      status.innerHTML = "✅ Respuesta recibida";
-      if(response.startsWith("Error") || response.startsWith("No se encontró")) {
-        resDiv.innerHTML = "<b style='color:red'>" + response + "</b>";
-        return;
-      }
-      const info = JSON.parse(response);
-      let h = "";
-      for(let k in info) {
-let valor = info[k] != null ? String(info[k]) : "";
-if(valor.startsWith("http")) {
-  valor = `<a href="${valor}" target="_blank" rel="noopener noreferrer">${valor}</a>`;
-}
-h += `<div class="campo"><span class="label">${k}</span>${valor}</div>`;
-      }
-      resDiv.innerHTML = h;
-    })
-    .withFailureHandler(err => {
-      status.innerHTML = "❌ ERROR DE CONEXIÓN";
-      resDiv.innerHTML = "Detalle: " + err.message;
-    })
-    .buscarNaveEnServidor(valConN);
-}
+    google.script.run
+      .withSuccessHandler(response => {
+        // Validación para no romper el Sidebar si el servidor envía un error de texto
+        if (typeof response === 'string' && (response.startsWith("Error") || response.startsWith("No se encontró"))) {
+          status.innerHTML = "❌";
+          resDiv.innerHTML = "<b style='color:red'>" + response + "</b>";
+          return;
+        }
+
+        try {
+          const resJson = JSON.parse(response);
+          linkFichaMemoria = resJson.linkFicha; // Guardamos el link recibido
+
+          status.innerHTML = "✅ Lista";
+          btnFicha.style.display = "block";
+          
+          let h = "";
+          const datos = resJson.datos;
+          for (let k in datos) {
+            let valor = datos[k] != null ? String(datos[k]) : "---";
+            // Si el valor es un link, lo hacemos clicable en la lista
+            if (valor.startsWith("http")) {
+              valor = `<a href="${valor}" target="_blank" rel="noopener noreferrer">${valor}</a>`;
+            }
+            h += `<div class="campo"><span class="label">${k}</span>${valor}</div>`;
+          }
+          resDiv.innerHTML = h;
+        } catch (e) {
+          status.innerHTML = "❌ Error al procesar datos";
+          resDiv.innerHTML = "Detalle: " + e.message;
+        }
+      })
+      .withFailureHandler(err => {
+        status.innerHTML = "❌ Error de conexión";
+        resDiv.innerHTML = "Detalle: " + err.message;
+      })
+      .buscarNaveEnServidor(valConN);
+  }
+
+  function abrirFicha() {
+    const msgError = document.getElementById('msgErrorPdf');
+    const status = document.getElementById('status');
+    
+    if (linkFichaMemoria && linkFichaMemoria !== "") {
+      window.open(linkFichaMemoria, '_blank');
+      msgError.style.display = "none";
+      status.innerHTML = "✅ Ficha abierta";
+    } else {
+      msgError.style.display = "block";
+      status.innerHTML = "⚠️ Sin link";
+    }
+  }
   </script>
 </body>
 </html>
