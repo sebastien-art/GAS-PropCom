@@ -54,7 +54,7 @@ function buscarNaveEnServidor(ref) {
     if (rowIndex === -1) return "No se encontró la REF: " + ref;
 
     const rowData = dataRange[rowIndex];
-    const campos = ["Intermediario","Operación","Ficha","REF","Teléfono o link","Nombre","Estado","Zona Principal","Sub Zona","Desarrollador","Parque","Nave","M2 de construcción","M2 de terreno","M2 mínimos rentables","Asking price /m2","Mantenimiento / m2","Energía (kVAs)","Disponibilidad","Comentarios","Renta total","Mantenimiento total","Coordenadas","Ubicación","Andenes de carga","Rampas","A piso", "Resistencia de piso (espesor, resistencia tonelada por m2)","Altura libre","Altura máxima","Tipo de construcción","Tipo de techo","% Skylight","Seguridad 24/7","Oficinas (m2 o %)","Moneda del contrato","Año de construcción","Protección contra incendios","Plazo mínimo de contrato","Gas natural","Caseta de seguridad privada","ID de carpeta de fotos"];
+    const campos = ["Intermediario","Operación","Ficha","REF","Estado","Zona Principal","Sub Zona","Desarrollador","Parque","Nave","M2 de construcción","M2 de terreno","M2 mínimos rentables","Asking price /m2","Mantenimiento / m2","Energía (kVAs)","Disponibilidad","Comentarios","Renta total","Mantenimiento total","Coordenadas","Ubicación","Andenes de carga","Rampas","A piso", "Resistencia de piso (espesor, resistencia tonelada por m2)","Altura libre","Altura máxima","Tipo de construcción","Tipo de techo","% Skylight","Seguridad 24/7","Oficinas (m2 o %)","Moneda del contrato","Año de construcción","Protección contra incendios","Plazo mínimo de contrato","Gas natural","Caseta de seguridad privada","ID de carpeta de fotos"];
 
     // IMPORTANTE: Devolvemos un objeto con "datos" y "link"
     let respuestaFinal = { "datos": {}, "linkFicha": "" };

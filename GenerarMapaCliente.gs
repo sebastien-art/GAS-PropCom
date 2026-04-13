@@ -118,7 +118,7 @@ function GenerarMapaCliente() {
 
   // Reporte inválidos (si aplica)
   if (points.invalid.length) {
-    const warnStart = outRow + 3 + 42;
+    const warnStart = outRow + 3 + 1;
     const needWarnEnd = warnStart + 2 + points.invalid.length;
     const maxRows2 = sheet.getMaxRows();
     if (needWarnEnd > maxRows2) sheet.insertRowsAfter(maxRows2, needWarnEnd - maxRows2);
@@ -185,7 +185,7 @@ function getFinalTableMeta_(sheet, headerBgHex) {
   const lastCol = sheet.getLastColumn();
 
   // ✅ acepta ES y ENG/CHI
-  const partidaCell =
+const partidaCell =
     findBlueHeaderCellAny_(sheet, ["Partida", "Item", "Item / 项目"], headerBgHex);
   if (!partidaCell) {
     throw new Error('No encontré el encabezado "Partida" ni "Item / 项目" con fondo azul.');
@@ -198,8 +198,8 @@ function getFinalTableMeta_(sheet, headerBgHex) {
   const colPartida =
     findHeaderColAny_(headerVals, headerBgs, ["Partida", "Item", "Item / 项目"], headerBgHex);
 
-  const colCoord =
-    findHeaderColAny_(headerVals, headerBgs, ["Coordenadas", "Coordinates"], headerBgHex);
+const colCoord =
+    findHeaderColAny_(headerVals, headerBgs, ["Coordenadas", "Coordinates", "Coordinates / 坐标"], headerBgHex);
 
   const colREF = findHeaderColAny_(headerVals, headerBgs, ["REF"], headerBgHex) || null;
   const colEstado = findHeaderColAny_(headerVals, headerBgs, ["Estado", "State / 州", "State"], headerBgHex) || null;

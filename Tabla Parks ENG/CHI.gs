@@ -1,28 +1,53 @@
-function TablaParques() {
+function Park_ENG_CHI() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getActiveSheet();
 
   sheet.setHiddenGridlines(true);
 
   const HEADER_ROW = 1;
-  const START_COL_TABLE = 4; 
+  const START_COL_TABLE = 4; // D
   const HEADER_BG = "#9fc5e8";
 
+  const FOOTNOTE_TEXT =
+    "* Price (shell) before negotiation and technical project + maintenance + VAT / *价格为谈判及技术方案之前的报价，另加维护费和增值税（VAT）。";
+
+  const FLEX_TEXT =
+    "** Flexible area: we can deliver the number of m² according to your requirement, within the range shown (from the minimum leasable area to the maximum leasable area). / ** 面积灵活：我们可根据您的需求在所示范围内交付相应的平方米数（从最小可租面积到最大可租面积）。";
+
   const SRC_HEADERS = {
-    ENVIAR: ["ENVIAR", "Operación"], FICHA: ["Ficha", "OK"], REF: ["REF"],
-    ESTADO: ["Estado"], ZONA: ["Zona Principal"], SUBZONA: ["Sub Zona"],
-    M2CONST: ["M2 de construcción", "m2 de construccion"], ASKING: ["Asking price /m2"],
-    MANT: ["Mantenimiento / m2"], DISP: ["Disponibilidad"],
-    DESARROLLADOR: ["Desarrollador"], PARQUE: ["Parque"], COORD: ["Coordenadas"],
-    INTERMEDIARIO: ["Intermediario", "Broker", "Agent"]
+    ENVIAR: ["ENVIAR", "Operación", "SEND"],
+    FICHA: ["Ficha", "OK", "Link"],
+    REF: ["REF", "参考编号"],
+    ESTADO: ["Estado", "Status", "状态"],
+    ZONA: ["Zona Principal", "Main Zone", "区域"],
+    SUBZONA: ["Sub Zona", "Sub Zone"],
+    M2CONST: ["M2 de construcción", "m2 de construccion", "Building Area", "建筑面积"],
+    ASKING: ["Asking price /m2", "租金"],
+    MANT: ["Mantenimiento / m2", "Maintenance", "物业"],
+    DISP: ["Disponibilidad", "Availability"],
+    DESARROLLADOR: ["Desarrollador", "Developer", "开发商"],
+    PARQUE: ["Parque", "Park", "园区"],
+    COORD: ["Coordenadas", "Coordinates", "坐标"],
+    INTERMEDIARIO: ["Intermediario", "Broker", "Agent"] // Agregado
   };
 
   const FINAL_HEADERS = [
-    "Partida", "REF", "Estado", "Zona Principal", "Sub Zona",
-    "Superficie sugerida (m2)", "Superficie mínima rentable (m2) **", "Superficie máxima rentable (m2) **",
-    "Asking price / m2 *", "Mantenimiento / m2", "Disponibilidad",
-    "", // SEPARADOR
-    "Coordenadas", "Parque", "Desarrollador", "Intermediario"
+    "Item / 项目",
+    "REF / 参考编号",
+    "State / 州",
+    "Main zone / 主区域",
+    "Sub-zone / 子区域",
+    "Suggested Area (m2) / 建议面积",
+    "Min Area (m2) ** / 最小面积",
+    "Max Area (m2) ** / 最大面积",
+    "Asking price * / 要价*",
+    "Maint. / 维护费",
+    "Availability / 可用性",
+    "", // separator column
+    "Coordinates / 坐标",
+    "Industrial Park / 工业园",
+    "Developer / 开发商",
+    "Broker / 中介" // Agregado
   ];
 
   const REF_IDX = 2, ESTADO_IDX = 3, ZONA_IDX = 4, SUBZONA_IDX = 5;
@@ -62,11 +87,10 @@ function TablaParques() {
 
   const picked = [];
   for (let r = 0; r < dataValues.length; r++) {
-    // CAMBIO: Se elimina la validación del "OK" en la columna ENVIAR. Se toman todas las filas con REF.
     if (String(dataValues[r][c.ref - 1]).trim() !== "") {
       let richText = dataRichText[r][c.ficha - 1];
       let url = richText ? (richText.getLinkUrl() || "") : "";
-      picked.push({ row: dataValues[r], url: url, originalIndex: r });
+      picked.push({ row: dataValues[r], url: url });
     }
   }
 
@@ -108,34 +132,32 @@ function TablaParques() {
         values: [
           b[c.estado-1], b[c.zona-1], b[c.subzona-1],
           (g.minM2 === g.maxM2 ? Math.round(g.minM2) : ""), Math.round(g.minM2), Math.round(g.maxM2),
-          b[c.asking-1], b[c.mant-1], b[c.disp-1], "", 
+          b[c.asking-1], b[c.mant-1], b[c.disp-1], " ", 
           uniqueCoords, b[c.parque-1], b[c.dev-1], b[c.intermediario-1]
         ]
       });
-    } else {
+    } else if (!g.isAgrupable || g.items.length < 2) {
       const m2 = Math.round(parseFloat(String(p.row[c.m2-1]).replace(/[^\d.]/g, ""))) || "";
       tableData.push({
         partida: partida++, isGroup: false, item: p,
         values: [
           p.row[c.estado-1], p.row[c.zona-1], p.row[c.subzona-1],
-          m2, m2, m2, p.row[c.asking-1], p.row[c.mant-1], p.row[c.disp-1], "", 
+          m2, m2, m2, p.row[c.asking-1], p.row[c.mant-1], p.row[c.disp-1], " ", 
           p.row[c.coord-1], p.row[c.parque-1], p.row[c.dev-1], p.row[c.intermediario-1]
         ]
       });
     }
   });
 
-  /************ RENDERIZADO ************/
   const startRow = scanTo + 4;
   sheet.getRange(startRow - 1, START_COL_TABLE - 1, tableData.length + 50, FINAL_HEADERS.length + 5).breakApart().clear().setBackground("#ffffff");
 
   const headerRange = sheet.getRange(startRow, START_COL_TABLE, 1, FINAL_HEADERS.length);
   headerRange.setValues([FINAL_HEADERS])
-       .setFontWeight("bold").setBackground(HEADER_BG).setHorizontalAlignment("center").setVerticalAlignment("middle").setWrap(true);
+       .setFontWeight("bold").setBackground(HEADER_BG).setFontColor("#000000").setHorizontalAlignment("center").setVerticalAlignment("middle").setWrap(true);
 
-  // --- BUSQUEDA DINÁMICA DE LA COLUMNA AZUL ---
   const finalHeadersRow = FINAL_HEADERS.map(h => stripAccents(h).toLowerCase());
-  const sugColOffset = finalHeadersRow.indexOf(stripAccents("Superficie sugerida (m2)").toLowerCase());
+  const sugColOffset = finalHeadersRow.indexOf(stripAccents("Suggested Area (m2) / 建议面积").toLowerCase());
   const colSuperficieSugerida = (sugColOffset !== -1) ? START_COL_TABLE + sugColOffset : null;
 
   tableData.forEach((rowObj, i) => {
@@ -161,21 +183,20 @@ function TablaParques() {
     sheet.getRange(rowIdx, START_COL_TABLE + 2, 1, rowObj.values.length).setValues([rowObj.values]);
   });
 
-  // FORMATOS
   const tableRange = sheet.getRange(startRow, START_COL_TABLE, tableData.length + 1, FINAL_HEADERS.length);
   tableRange.setBorder(true, true, true, true, true, true).setVerticalAlignment("middle").setHorizontalAlignment("center");
   
-  // APLICAR COLOR AZUL DINÁMICO
   if (colSuperficieSugerida) {
-    sheet.getRange(startRow + 1, colSuperficieSugerida, tableData.length, 1).setFontColor("#1155cc").setFontWeight("bold");
+    sheet.getRange(startRow + 1, colSuperficieSugerida, tableData.length, 1).setFontColor("#1a73e8").setFontWeight("bold");
   }
 
-  // ANCHOS Y ALINEACIONES
   const cols110 = [ESTADO_IDX, 6, MIN_IDX, MAX_IDX, ASKING_IDX, MANT_IDX, DISP_IDX, COORD_IDX, PARQUE_IDX, BROKER_IDX];
   cols110.forEach(idx => {
     sheet.setColumnWidth(START_COL_TABLE + idx - 1, 110);
   });
-  [ZONA_IDX, SUBZONA_IDX].forEach(idx => { sheet.setColumnWidth(START_COL_TABLE + idx - 1, 150); });
+  [ZONA_IDX, SUBZONA_IDX].forEach(idx => { 
+    sheet.setColumnWidth(START_COL_TABLE + idx - 1, 150); 
+  });
   sheet.setColumnWidth(START_COL_TABLE, 62); 
   sheet.setColumnWidth(START_COL_TABLE + 1, 42); 
 
@@ -183,20 +204,24 @@ function TablaParques() {
     sheet.getRange(startRow + 1, START_COL_TABLE + idx - 1, tableData.length, 1).setHorizontalAlignment("left");
   });
 
-  sheet.getRange(startRow + 1, START_COL_TABLE + 1, tableData.length, 1).setFontLine("underline").setFontColor("#1155cc");
+  sheet.getRange(startRow + 1, START_COL_TABLE + 1, tableData.length, 1).setFontLine("underline").setFontColor("#1a73e8");
 
   const sepRange = sheet.getRange(startRow, START_COL_TABLE + SEP_IDX - 1, tableData.length + 1, 1);
   sepRange.clearFormat().setBackground(null).setBorder(null, false, null, false, false, false);
   sheet.getRange(startRow, START_COL_TABLE + DISP_IDX - 1, tableData.length + 1, 1).setBorder(null, null, null, true, null, null);
   sheet.getRange(startRow, START_COL_TABLE + COORD_IDX - 1, tableData.length + 1, 1).setBorder(null, true, null, null, null, null);
   
-  sheet.getRange(startRow + 1, START_COL_TABLE + 5, tableData.length, 5).setNumberFormat("#,##0.00");
+  sheet.getRange(startRow + 1, START_COL_TABLE + 5, tableData.length, 3).setNumberFormat("#,##0");
+  sheet.getRange(startRow + 1, START_COL_TABLE + 8, tableData.length, 2).setNumberFormat("#,##0.00");
 
   const footnoteRow = startRow + tableData.length + 1;
   const footnoteRange = sheet.getRange(footnoteRow, START_COL_TABLE, 1, SEP_IDX - 1);
-  footnoteRange.merge().setValue("* Precios y disponibilidades sujetos a cambios sin previo aviso.").setFontSize(10).setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
+  footnoteRange.merge().setValue(FOOTNOTE_TEXT).setBackground("#ffffff").setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
   
   const flexRow = footnoteRow + 1;
   const flexRange = sheet.getRange(flexRow, START_COL_TABLE, 1, SEP_IDX - 1);
-  flexRange.merge().setValue("** Área flexible: podemos entregar el número de m² según su requerimiento, dentro del rango mostrado.").setFontSize(10).setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
+  flexRange.merge().setValue(FLEX_TEXT).setBackground("#ffffff").setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
+
+  SpreadsheetApp.flush();
+  sheet.setActiveRange(headerRange);
 }
