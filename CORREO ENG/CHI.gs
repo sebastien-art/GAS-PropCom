@@ -69,7 +69,7 @@ function SendFinalProposalPDFByEmail() {
         "我们随时恭候您的回复。</p>" +
       "</div>";
 
-    const subject = "Industrial Warehouse Proposals (PDF) / 工业厂房方案 (PDF)";
+    const subject = "Industrial Warehouse Proposals / 工业厂房方案 - Industrial Estate";
 
     const execEmail = getExecutingUserEmail_ENG_();
     const sendAsEmail = pickSendAsEmail_ENG_(execEmail);

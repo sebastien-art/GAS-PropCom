@@ -65,20 +65,20 @@ function EnviarPropuestaFinalPDFPorCorreo() {
 
     // === Cuerpo EXACTO pedido
     const plainBodyBase =
-      "Estimado " + nombreCliente + ",\n" +
+      "Hola " + nombreCliente + ",\n" +
       "Te comparto en este correo el PDF con las propuestas de naves industriales conforme a tu requerimiento.\n" +
       "Si buscas más o menos superficie, otra zona, o necesitas confirmar algún punto técnico, nos dices y ajustamos el documento con otras propuestas. Y si quieres ver fichas técnicas a detalle o agendar recorridos, con gusto lo coordinamos.\n" +
       "Quedo a tu disposición.\n";
 
     const htmlBodyBase =
       '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">' +
-        "<p>Estimado " + escapeHtml_(nombreCliente) + ",</p>" +
+        "<p>Hola " + escapeHtml_(nombreCliente) + ",</p>" +
         "<p>Te comparto en este correo el PDF con las propuestas de naves industriales conforme a tu requerimiento.</p>" +
         "<p>Si buscas más o menos superficie, otra zona, o necesitas confirmar algún punto técnico, nos dices y ajustamos el documento con otras propuestas. Y si quieres ver fichas técnicas a detalle o agendar recorridos, con gusto lo coordinamos.</p>" +
         "<p>Quedo a tu disposición.</p>" +
       "</div>";
 
-    const subject = "Propuestas de naves industriales (PDF)";
+    const subject = "Propuestas de naves industriales - Industrial Estate Mexico";
 
     // === Firma real según quién ejecuta
     const execEmail = getExecutingUserEmail_();

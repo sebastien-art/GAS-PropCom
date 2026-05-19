@@ -40,7 +40,7 @@ function Park_ENG_CHI() {
     "Suggested Area (m2) / 建议面积",
     "Min Area (m2) ** / 最小面积",
     "Max Area (m2) ** / 最大面积",
-    "Asking price * / 要价*",
+    "Asking price / sqm (m2) * / 要价*",
     "Maint. / 维护费",
     "Availability / 可用性",
     "", // separator column

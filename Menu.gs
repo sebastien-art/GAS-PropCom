@@ -17,5 +17,6 @@ function onOpen() {
     .addItem("Enviar Email ENG CHI", "SendFinalProposalPDFByEmail")
     .addSeparator() // --- Línea separadora ---    
     .addItem('Sidebar NAVE', 'showNaveSidebar')
-    .addToUi();
+    .addItem('Ir a Menú', 'irAMenu')
+        .addToUi();
 }

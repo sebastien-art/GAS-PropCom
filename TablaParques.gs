@@ -14,20 +14,21 @@ function TablaParques() {
     M2CONST: ["M2 de construcción", "m2 de construccion"], ASKING: ["Asking price /m2"],
     MANT: ["Mantenimiento / m2"], DISP: ["Disponibilidad"],
     DESARROLLADOR: ["Desarrollador"], PARQUE: ["Parque"], COORD: ["Coordenadas"],
-    INTERMEDIARIO: ["Intermediario", "Broker", "Agent"]
+    INTERMEDIARIO: ["Intermediario", "Broker", "Agent"],
+    UBICACION: ["Ubicación", "Ubicacion"]
   };
 
   const FINAL_HEADERS = [
     "Partida", "REF", "Estado", "Zona Principal", "Sub Zona",
-    "Superficie sugerida (m2)", "Superficie mínima rentable (m2) **", "Superficie máxima rentable (m2) **",
-    "Asking price / m2 *", "Mantenimiento / m2", "Disponibilidad",
+    "Superficie sugerida (m2)", "Superficie mínima disponible (m2) **","Superficie máxima disponible (m2) **",
+    "Precio por m2 *", "Mantenimiento / m2", "Disponibilidad",
     "", // SEPARADOR
-    "Coordenadas", "Parque", "Desarrollador", "Intermediario"
+    "Coordenadas", "Parque", "Desarrollador", "Intermediario", "Ubicación"
   ];
 
   const REF_IDX = 2, ESTADO_IDX = 3, ZONA_IDX = 4, SUBZONA_IDX = 5;
   const MIN_IDX = 7, MAX_IDX = 8, ASKING_IDX = 9, MANT_IDX = 10, DISP_IDX = 11;
-  const SEP_IDX = 12, COORD_IDX = 13, PARQUE_IDX = 14, DEV_IDX = 15, BROKER_IDX = 16;
+  const SEP_IDX = 12, COORD_IDX = 13, PARQUE_IDX = 14, DEV_IDX = 15, BROKER_IDX = 16, UBIC_IDX = 17;
 
   const stripAccents = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const makeKeys = (s) => {
@@ -52,7 +53,8 @@ function TablaParques() {
     m2: getCol(SRC_HEADERS.M2CONST), asking: getCol(SRC_HEADERS.ASKING),
     mant: getCol(SRC_HEADERS.MANT), disp: getCol(SRC_HEADERS.DISP),
     dev: getCol(SRC_HEADERS.DESARROLLADOR), parque: getCol(SRC_HEADERS.PARQUE),
-    coord: getCol(SRC_HEADERS.COORD), intermediario: getCol(SRC_HEADERS.INTERMEDIARIO)
+    coord: getCol(SRC_HEADERS.COORD), intermediario: getCol(SRC_HEADERS.INTERMEDIARIO),
+    ubic: getCol(SRC_HEADERS.UBICACION)
   };
 
   const scanTo = sheet.getLastRow();
@@ -62,7 +64,7 @@ function TablaParques() {
 
   const picked = [];
   for (let r = 0; r < dataValues.length; r++) {
-    // CAMBIO: Se elimina la validación del "OK" en la columna ENVIAR. Se toman todas las filas con REF.
+    // ORIGINAL: toma todas las filas con REF no vacío
     if (String(dataValues[r][c.ref - 1]).trim() !== "") {
       let richText = dataRichText[r][c.ficha - 1];
       let url = richText ? (richText.getLinkUrl() || "") : "";
@@ -103,23 +105,25 @@ function TablaParques() {
       emittedKeys.add(k);
       const b = g.items[0].row;
       const uniqueCoords = [...new Set(g.items.map(i => String(i.row[c.coord-1]).trim()).filter(x => x))].join(", ");
+      const uniqueUbic = [...new Set(g.items.map(i => c.ubic ? String(i.row[c.ubic-1]).trim() : "").filter(x => x))].join(", ");
       tableData.push({
         partida: partida++, isGroup: true, items: g.items,
         values: [
           b[c.estado-1], b[c.zona-1], b[c.subzona-1],
           (g.minM2 === g.maxM2 ? Math.round(g.minM2) : ""), Math.round(g.minM2), Math.round(g.maxM2),
           b[c.asking-1], b[c.mant-1], b[c.disp-1], "", 
-          uniqueCoords, b[c.parque-1], b[c.dev-1], b[c.intermediario-1]
+          uniqueCoords, b[c.parque-1], b[c.dev-1], b[c.intermediario-1], uniqueUbic
         ]
       });
     } else {
       const m2 = Math.round(parseFloat(String(p.row[c.m2-1]).replace(/[^\d.]/g, ""))) || "";
+      const ubicVal = c.ubic ? String(p.row[c.ubic-1]).trim() : "";
       tableData.push({
         partida: partida++, isGroup: false, item: p,
         values: [
           p.row[c.estado-1], p.row[c.zona-1], p.row[c.subzona-1],
           m2, m2, m2, p.row[c.asking-1], p.row[c.mant-1], p.row[c.disp-1], "", 
-          p.row[c.coord-1], p.row[c.parque-1], p.row[c.dev-1], p.row[c.intermediario-1]
+          p.row[c.coord-1], p.row[c.parque-1], p.row[c.dev-1], p.row[c.intermediario-1], ubicVal
         ]
       });
     }
@@ -133,7 +137,7 @@ function TablaParques() {
   headerRange.setValues([FINAL_HEADERS])
        .setFontWeight("bold").setBackground(HEADER_BG).setHorizontalAlignment("center").setVerticalAlignment("middle").setWrap(true);
 
-  // --- BUSQUEDA DINÁMICA DE LA COLUMNA AZUL ---
+  // BÚSQUEDA DINÁMICA COLUMNA AZUL
   const finalHeadersRow = FINAL_HEADERS.map(h => stripAccents(h).toLowerCase());
   const sugColOffset = finalHeadersRow.indexOf(stripAccents("Superficie sugerida (m2)").toLowerCase());
   const colSuperficieSugerida = (sugColOffset !== -1) ? START_COL_TABLE + sugColOffset : null;
@@ -165,38 +169,52 @@ function TablaParques() {
   const tableRange = sheet.getRange(startRow, START_COL_TABLE, tableData.length + 1, FINAL_HEADERS.length);
   tableRange.setBorder(true, true, true, true, true, true).setVerticalAlignment("middle").setHorizontalAlignment("center");
   
-  // APLICAR COLOR AZUL DINÁMICO
   if (colSuperficieSugerida) {
     sheet.getRange(startRow + 1, colSuperficieSugerida, tableData.length, 1).setFontColor("#1155cc").setFontWeight("bold");
   }
 
-  // ANCHOS Y ALINEACIONES
-  const cols110 = [ESTADO_IDX, 6, MIN_IDX, MAX_IDX, ASKING_IDX, MANT_IDX, DISP_IDX, COORD_IDX, PARQUE_IDX, BROKER_IDX];
-  cols110.forEach(idx => {
-    sheet.setColumnWidth(START_COL_TABLE + idx - 1, 110);
-  });
+  // ANCHOS
+  const cols110 = [ESTADO_IDX, 6, MIN_IDX, MAX_IDX, ASKING_IDX, MANT_IDX, DISP_IDX, COORD_IDX, PARQUE_IDX, BROKER_IDX, UBIC_IDX];
+  cols110.forEach(idx => { sheet.setColumnWidth(START_COL_TABLE + idx - 1, 110); });
   [ZONA_IDX, SUBZONA_IDX].forEach(idx => { sheet.setColumnWidth(START_COL_TABLE + idx - 1, 150); });
   sheet.setColumnWidth(START_COL_TABLE, 62); 
   sheet.setColumnWidth(START_COL_TABLE + 1, 42); 
 
-  [REF_IDX, COORD_IDX, PARQUE_IDX, DEV_IDX, BROKER_IDX].forEach(idx => {
+  // ALINEACIONES IZQUIERDA
+  [REF_IDX, COORD_IDX, PARQUE_IDX, DEV_IDX, BROKER_IDX, UBIC_IDX].forEach(idx => {
     sheet.getRange(startRow + 1, START_COL_TABLE + idx - 1, tableData.length, 1).setHorizontalAlignment("left");
   });
 
   sheet.getRange(startRow + 1, START_COL_TABLE + 1, tableData.length, 1).setFontLine("underline").setFontColor("#1155cc");
 
+  // SEPARADOR
   const sepRange = sheet.getRange(startRow, START_COL_TABLE + SEP_IDX - 1, tableData.length + 1, 1);
   sepRange.clearFormat().setBackground(null).setBorder(null, false, null, false, false, false);
   sheet.getRange(startRow, START_COL_TABLE + DISP_IDX - 1, tableData.length + 1, 1).setBorder(null, null, null, true, null, null);
   sheet.getRange(startRow, START_COL_TABLE + COORD_IDX - 1, tableData.length + 1, 1).setBorder(null, true, null, null, null, null);
   
-  sheet.getRange(startRow + 1, START_COL_TABLE + 5, tableData.length, 5).setNumberFormat("#,##0.00");
+  // FORMATOS NUMÉRICOS
+  const numFormats = {
+    "Superficie sugerida (m2)":            "#,##0",
+    "Superficie mínima disponible (m2) **":  "#,##0",
+    "Superficie máxima disponible (m2) **":  "#,##0",
+    "Precio por m2 *":                 "#,##0.00",
+    "Mantenimiento / m2":                  "#,##0.00",
+  };
+  Object.entries(numFormats).forEach(([header, fmt]) => {
+    const offset = FINAL_HEADERS.indexOf(header);
+    if (offset !== -1) {
+      sheet.getRange(startRow + 1, START_COL_TABLE + offset, tableData.length, 1).setNumberFormat(fmt);
+    }
+  });
 
+  // NOTAS AL PIE
   const footnoteRow = startRow + tableData.length + 1;
-  const footnoteRange = sheet.getRange(footnoteRow, START_COL_TABLE, 1, SEP_IDX - 1);
-  footnoteRange.merge().setValue("* Precios y disponibilidades sujetos a cambios sin previo aviso.").setFontSize(10).setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
+  sheet.getRange(footnoteRow, START_COL_TABLE, 1, SEP_IDX - 1)
+    .merge().setValue("* Precios y disponibilidades sujetos a cambios sin previo aviso.")
+    .setFontSize(10).setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
   
-  const flexRow = footnoteRow + 1;
-  const flexRange = sheet.getRange(flexRow, START_COL_TABLE, 1, SEP_IDX - 1);
-  flexRange.merge().setValue("** Área flexible: podemos entregar el número de m² según su requerimiento, dentro del rango mostrado.").setFontSize(10).setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
+  sheet.getRange(footnoteRow + 1, START_COL_TABLE, 1, SEP_IDX - 1)
+    .merge().setValue("** Área flexible: podemos entregar el número de m² según su requerimiento, dentro del rango mostrado.")
+    .setFontSize(10).setFontStyle("italic").setHorizontalAlignment("left").setWrap(true);
 }

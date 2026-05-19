@@ -9,9 +9,9 @@ function Slides_ENG_CHI() {
   const sheetName = sheet.getName();
 
   try {
-    const empresa = promptOrThrow_(ui, "Create Slides / 生成幻灯片", "Q1: Client Name / 客户名称");
-    const estadoZona = promptOrThrow_(ui, "Create Slides / 生成幻灯片", "Q2: Zone & State / 区域和州");
-    const rangoSup = promptOrThrow_(ui, "Create Slides / 生成幻灯片", "Q3: Surface / 面积");
+    const empresa = promptOrThrow_(ui, "Create Slides / 生成幻灯片", "Q1: Nombre CLIENTE");
+    const estadoZona = promptOrThrow_(ui, "Create Slides / 生成幻灯片", "Q2: Zona y Estado");
+    const rangoSup = promptOrThrow_(ui, "Create Slides / 生成幻灯片", "Q3: Superficie deseada");
     const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
     const sheetFolder = getOrCreateSheetFolderInRoot_(sheetName);
@@ -19,7 +19,7 @@ function Slides_ENG_CHI() {
     const tableMeta = findFinalTableMeta_INT(sheet);
     const tableData = readFinalTableForSlides_INT(sheet, tableMeta);
 
-    if (!tableData.values || tableData.values.length === 0) throw new Error('No data found in table.');
+    if (!tableData.values || tableData.values.length === 0) throw new Error('No se encontraron datos en la Tabla.');
 
     const mapFile = getMapFileForSheetStrict_INT(sheetName);
     const mapBlob = mapFile.getBlob().setContentType("image/png");
@@ -48,7 +48,7 @@ function Slides_ENG_CHI() {
     PropertiesService.getDocumentProperties().setProperty("LAST_SHEET_NAME", sheetName);
     INT_writeLinks_FINAL(sheet, sheet.getLastRow() + 2, 4, copyFile.getUrl(), sheetFolder.getUrl());
     
-    ss.toast("✅ Slides generated / 幻灯片生成成功", "Success");
+    ss.toast("✅ Slide Creado", "Exito");
 
   } catch (e) {
     ui.alert("Error Crítico: " + e.toString());
