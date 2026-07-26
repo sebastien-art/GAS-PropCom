@@ -4,7 +4,7 @@
 const TEMPLATE_PRESENTATION_ID = "1Hgyml-zwmQLsicHcNW8yg38Bf6ecN9AM7ts8kYzmrNE";
 
 const SLIDE_NUM_COVER = 1;
-const SLIDE_NUM_MAP = 7;
+// const SLIDE_NUM_MAP = 7;
 
 const COVER_FONT = "Arial";
 const COVER_COLOR_DARK = "#2b2b2b";
@@ -27,9 +27,10 @@ function CrearEnSlides() {
     const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
     const sheetFolder = getOrCreateSheetFolderInRoot_(sheetName);
+    registrarPropuesta_(sheetName, sheetFolder.getId());
 
-    const mapFile = getMapFileForSheetStrict_(sheetName);
-    const mapBlob = mapFile.getBlob().setContentType("image/png");
+    // const mapFile = getMapFileForSheetStrict_(sheetName);
+    // const mapBlob = mapFile.getBlob().setContentType("image/png");
 
     const presName = buildPresentationName_(empresa, sheetName, fecha);
     trashFilesByName_(sheetFolder, presName);
@@ -40,7 +41,7 @@ function CrearEnSlides() {
     const slides = pres.getSlides();
 
     ES_insertCoverInfo_FINAL(slides[SLIDE_NUM_COVER - 1], pres, { empresa, estadoZona, rangoSup, fecha });
-    ES_executeSafeInsert(slides[SLIDE_NUM_MAP - 1], pres, mapBlob, "AUTO_MAP_IMG");
+    // ES_executeSafeInsert(slides[SLIDE_NUM_MAP - 1], pres, mapBlob, "AUTO_MAP_IMG");
 
     pres.saveAndClose();
 

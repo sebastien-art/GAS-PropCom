@@ -15,6 +15,7 @@ function Slides_ENG_CHI() {
     const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
     const sheetFolder = getOrCreateSheetFolderInRoot_(sheetName);
+    registrarPropuesta_(sheetName, sheetFolder.getId());
     
     const tableMeta = findFinalTableMeta_INT(sheet);
     const tableData = readFinalTableForSlides_INT(sheet, tableMeta);

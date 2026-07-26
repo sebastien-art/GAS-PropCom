@@ -18,5 +18,12 @@ function onOpen() {
     .addSeparator() // --- Línea separadora ---    
     .addItem('Sidebar NAVE', 'showNaveSidebar')
     .addItem('Ir a Menú', 'irAMenu')
-        .addToUi();
+    .addSeparator() // --- Línea separadora ---    
+    .addItem('Generar Fichas', 'generarFichasPropuestasComerciales')
+    .addSeparator() // --- Línea separadora ---    
+    .addSeparator() // --- Línea separadora ---    
+    .addItem('Archivar propuestas >14 días', 'EjecutarArchivadoAutomatico')
+    .addItem('Archivar marcadas OK', 'ArchivarMarcadasMenu')
+    .addItem('Mostrar pestañas ocultas', 'MostrarTodasLasPestanas')
+    .addToUi();
 }
