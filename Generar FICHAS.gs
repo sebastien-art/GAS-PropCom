@@ -1,10 +1,14 @@
 /**
- * GENERADOR AUTOMÁTICO DE FICHAS TÉCNICAS (SLIDES & PDF)
+ * GENERADOR AUTOMÁTICO DE FICHAS TÉCNICAS (SLIDES & PDF) VÍA WEBAPP DE INVENTARIO
  */
 
-const CARPETA_ORIGEN_ID  = '1xSLs5GHRHbm9OMJwQldxmipNIhPT8eVc';
+// IDs de Carpetas
+const CARPETA_ORIGEN_ID      = '1xSLs5GHRHbm9OMJwQldxmipNIhPT8eVc';
 const FOLDER_MAESTRA_INV_ID = '1E9291Gm9a2wdYRqL9uglDUTLNxojfelb';
 const FOLDER_MAESTRA_CLI_ID = '1CNxLz5Xj4P3qwMSTa4uHgbcb_Wy5pwue';
+
+// URL de la WebApp de Inventario
+const INVENTARIO_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzpUroVXu87JyY05EZ9MvF9gc1vI5ljsQ-gPgDgANIMkVwMoVxe88L7EghjFTdrn3pUxA/exec";
 
 // Mapeo de abreviaturas para Estados
 const ABREVIATURAS_ESTADO = {
@@ -34,16 +38,16 @@ function generarFichasPropuestasComerciales() {
       ui.ButtonSet.YES_NO
     );
 
-    if (respuesta !== ui.Button.YES) {
-      return;
-    }
+    if (respuesta !== ui.Button.YES) return;
 
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheetPropCom = ss.getActiveSheet();
+    const ssActive = SpreadsheetApp.getActiveSpreadsheet();
+    const sheetPropCom = ssActive.getActiveSheet();
     const nombreClienteFolder = sheetPropCom.getName().trim().toUpperCase();
     const rawData = sheetPropCom.getDataRange().getDisplayValues();
 
-    // 1. LOCALIZAR TABLA PROPUESTAS COMERCIALES (TABLA AZUL)
+    console.log("=== INICIO DE PROCESO DE GENERACIÓN DE FICHAS ===");
+
+    // 1. LOCALIZAR TABLA PROPUESTAS COMERCIALES
     let headerRowIdx = -1;
     for (let r = 0; r < rawData.length; r++) {
       const filaBaja = rawData[r].map(c => c.toString().trim().toLowerCase());
@@ -55,15 +59,16 @@ function generarFichasPropuestasComerciales() {
     }
 
     if (headerRowIdx === -1) {
-      SpreadsheetApp.getUi().alert("Error: No se encontró la tabla azul (fila con Partida, REF, Desarrollador e Intermediario).");
+      SpreadsheetApp.getUi().alert("Error: No se encontró la tabla principal.");
       return;
     }
 
-    // 2. MAPEO DE COLUMNAS EXACTAS
+    // 2. MAPEO DE COLUMNAS
     const headers = rawData[headerRowIdx].map(h => h.toString().trim().toLowerCase());
     const col = {
       partida:       headers.indexOf("partida"),
       ref:           headers.indexOf("ref"),
+      ficha:         headers.indexOf("ficha"),
       parque:        headers.findIndex(h => h.includes("parque")),
       desarrollador: headers.findIndex(h => h.includes("desarrollador")),
       zona:          headers.findIndex(h => h.includes("zona principal")),
@@ -77,30 +82,21 @@ function generarFichasPropuestasComerciales() {
     };
 
     if (col.ref === -1 || col.m2Sugerida === -1 || col.precioM2 === -1 || col.precioTotal === -1) {
-      SpreadsheetApp.getUi().alert("Error: No se encontraron todas las columnas necesarias en la tabla.");
+      SpreadsheetApp.getUi().alert("Error: Faltan columnas en la tabla.");
       return;
     }
 
-    // 3. CONSTRUIR TRÍO DE HERMANAS PARA MODELOS EN CACHÉ
-    const trioMap = {};
-    for (let i = headerRowIdx + 1; i < rawData.length; i++) {
-      const row = rawData[i];
-      const refCelda = row[col.ref] ? row[col.ref].toString().trim() : "";
-      const devStr   = col.desarrollador !== -1 ? row[col.desarrollador].toString().trim() : "";
-      const parqStr  = col.parque !== -1 ? row[col.parque].toString().trim() : "";
-      const zonaStr  = col.zona !== -1 ? row[col.zona].toString().trim() : "";
-      if (refCelda && devStr && parqStr && zonaStr) {
-        const key = `${zonaStr}|${parqStr}|${devStr}`.toLowerCase();
-        if (!trioMap[key]) trioMap[key] = [];
-        refCelda.split(",").forEach(r => {
-          const ref = r.trim();
-          if (ref && !trioMap[key].includes(ref)) trioMap[key].push(ref);
-        });
-      }
-    }
+    // La columna para escribir la explicación será la celda a la izquierda de 'Ficha' (si 'Ficha' existe)
+    // De lo contrario, a la izquierda de 'REF'
+    const colTargetExplicacion = col.ficha > 0 ? (col.ficha - 1) : (col.ref > 0 ? col.ref - 1 : -1);
+
+    // 3. CONSULTAR MAPA DE HERMANAS DE INVENTARIO VÍA WEBAPP
+    console.log("Solicitando mapa de naves hermanas a la WebApp...");
+    const datosHermanas = obtenerMapaHermanasWebAPP();
+    const mapaDuo = datosHermanas.mapaDuo || {};
+    const mapaParqueSolo = datosHermanas.mapaParqueSolo || {};
 
     // 4. INDEXAR PLANTILLAS SLIDES
-    console.log("=== INICIO INDEXACIÓN DE PLANTILLAS ===");
     const inicioIndexacion = Date.now();
     const cacheModelos = [];
     const folderOrigen = DriveApp.getFolderById(CARPETA_ORIGEN_ID);
@@ -108,53 +104,31 @@ function generarFichasPropuestasComerciales() {
     indexarCarpeta(folderOrigen, cacheModelos, inicioIndexacion);
 
     if (cacheModelos.length === 0) {
-      SpreadsheetApp.getUi().alert("No se encontraron plantillas de slides válidas en la carpeta de origen.");
+      SpreadsheetApp.getUi().alert("No se encontraron plantillas de Slides válidas.");
       return;
     }
 
-    // 5. OBTENER CARPETA CONTENEDORA DE CLIENTE
     const folderCliente = obtenerOCrearSubcarpeta(DriveApp.getFolderById(FOLDER_MAESTRA_CLI_ID), nombreClienteFolder);
 
-    // MAPEO DE PESTAÑA NAVES PARA ACTUALIZACIÓN EN INVENTARIO
-    const sheetNaves = ss.getSheetByName("Naves");
-    let mapNaves = {};
-    if (sheetNaves) {
-      const dataNaves = sheetNaves.getDataRange().getDisplayValues();
-      if (dataNaves.length > 0) {
-        const headersNaves = dataNaves[0].map(h => h.toString().trim().toLowerCase());
-        const colRefNaves = headersNaves.indexOf("ref");
-        const colFichaNaves = headersNaves.indexOf("ficha");
-        if (colRefNaves !== -1 && colFichaNaves !== -1) {
-          for (let r = 1; r < dataNaves.length; r++) {
-            const refVal = dataNaves[r][colRefNaves].toString().trim().toUpperCase();
-            if (refVal) {
-              mapNaves[refVal] = {
-                rowIdx: r + 1,
-                colFichaIdx: colFichaNaves + 1
-              };
-            }
-          }
-        }
-      }
-    }
-
-    // 6. PROCESAR CADA FILA DE LA TABLA PROPUESTAS COMERCIALES
-    let procesadas = 0, errores = 0, sinModelo = 0;
+    // 5. PROCESAMIENTO DE FILAS
+    let procesadasConFicha = 0;
+    let refsNuevasConFicha = 0;
+    let refsNuevasSinFicha = 0;
+    let existSinFicha = 0;
+    let errores = 0;
 
     for (let i = headerRowIdx + 1; i < rawData.length; i++) {
       const row = rawData[i];
       const partidaStr = col.partida !== -1 ? row[col.partida].toString().trim() : "";
-      if (!/^\d+$/.test(partidaStr)) continue; // Solo filas con partida válida
+      if (!/^\d+$/.test(partidaStr)) continue;
 
-      const celdaRefRango = sheetPropCom.getRange(i + 1, col.ref + 1);
-      const richTextRef = celdaRefRango.getRichTextValue();
+      const numFilaReal = i + 1;
+      const celdaRefRango = sheetPropCom.getRange(numFilaReal, col.ref + 1);
+      const celdaStatusRango = colTargetExplicacion !== -1 ? sheetPropCom.getRange(numFilaReal, colTargetExplicacion + 1) : null;
+
       let refTexto = celdaRefRango.getValue().toString().trim();
-      let urlExistentePropCom = richTextRef ? (richTextRef.getLinkUrl() || "") : "";
+      const tieneRefOriginal = refTexto && refTexto.toUpperCase() !== "CREAR" && refTexto.toLowerCase() !== "seleccionar...";
 
-      const tieneRef = refTexto && refTexto.toUpperCase() !== "CREAR" && refTexto.toLowerCase() !== "seleccionar...";
-      const tieneFichaPropCom = Boolean(urlExistentePropCom);
-
-      // EXTRAER DATOS
       const devStr       = col.desarrollador !== -1 ? row[col.desarrollador].toString().trim() : "";
       const parqStr      = col.parque !== -1 ? row[col.parque].toString().trim() : "";
       const zonaStr      = col.zona !== -1 ? row[col.zona].toString().trim() : "";
@@ -165,74 +139,100 @@ function generarFichasPropuestasComerciales() {
       const precioTotal  = row[col.precioTotal] ? row[col.precioTotal].toString().trim() : "";
       const operacionStr = col.operacion !== -1 ? row[col.operacion].toString().trim() : "RENTA";
 
+      let logFila = `[Fila ${numFilaReal} | Partida ${partidaStr}] Parque: "${parqStr}", Dev: "${devStr}" -> `;
+
       if (!m2Sugerida || m2Sugerida === "0" || !precioM2 || !precioTotal) {
         errores++;
-        console.warn(`[DATOS INCOMPLETOS] Fila ${i + 1} omitida por falta de Superficie sugerida, Precio por m2 o Precio total.`);
+        logFila += "⚠️ Omitida (faltan M2 o Precios).";
+        console.warn(logFila);
+        if (celdaStatusRango) celdaStatusRango.setValue("⚠️ Faltan datos de M2/Precio");
         continue;
       }
 
-      const trioKey = `${zonaStr}|${parqStr}|${devStr}`.toLowerCase();
-      const hermanasDelTrio = trioMap[trioKey] || [];
-
-      // DETERMINAR BÚSQUEDA DE MODELO
       let modeloEncontrado = null;
-      if (tieneRef) {
-        const refClean = refTexto.replace(/\s+/g, '').toUpperCase();
-        modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.textoLimpio.includes(refClean));
-      }
+      let detalleMatch = "";
 
-      if (!modeloEncontrado && hermanasDelTrio.length > 0) {
-        for (const refHermana of hermanasDelTrio) {
-          const hermanaClean = refHermana.replace(/\s+/g, '').toUpperCase();
-          modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.textoLimpio.includes(hermanaClean));
-          if (modeloEncontrado) break;
+      // A) Búsqueda directa por REF original
+      if (tieneRefOriginal) {
+        const refLimpia = extraerCodigoRefLimpio(refTexto);
+        modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.refsEncontradas.includes(refLimpia));
+        if (modeloEncontrado) {
+          detalleMatch = `Modelo hallado directo por REF ${refLimpia} (Slide: ${modeloEncontrado.fileName})`;
         }
       }
 
-      // EVALUACIÓN DE CASOS SEGÚN EXISTENCIA DE MODELO
+      // B) Búsqueda por Hermanas
+      if (!modeloEncontrado && parqStr) {
+        const kParque = limpiarTextoClave(parqStr);
+        const kDuo = devStr ? `${kParque}|${limpiarTextoClave(devStr)}` : kParque;
+
+        let hermanasInv = mapaDuo[kDuo] || [];
+        let origenBusqueda = "Dúo";
+
+        if (hermanasInv.length === 0) {
+          hermanasInv = mapaParqueSolo[kParque] || [];
+          origenBusqueda = "Parque solo";
+        }
+
+        for (const refHermana of hermanasInv) {
+          modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.refsEncontradas.includes(refHermana));
+          if (modeloEncontrado) {
+            detalleMatch = `Modelo hallado usando hermana ${refHermana} (${origenBusqueda}) en Slide: ${modeloEncontrado.fileName}`;
+            break;
+          }
+        }
+
+        if (!modeloEncontrado) {
+          detalleMatch = `Sin modelo en Slides. Hermanas probadas (${hermanasInv.length}): [${hermanasInv.join(", ")}]`;
+        }
+      }
+
+      // C) Generación o asignación de REF
+      let refFinal = "";
+      let esRefRecienCreada = false;
+
+      if (tieneRefOriginal) {
+        refFinal = refTexto;
+      } else {
+        const numSugM2 = parseFloat(String(m2Sugerida).replace(/[^\d.]/g, "")) || 0;
+        refFinal = solicitarNuevaRefWebAPP(parqStr, numSugM2, operacionStr);
+        
+        if (!refFinal) {
+          errores++;
+          logFila += "❌ Error al generar REF vía WebApp.";
+          console.error(logFila);
+          if (celdaStatusRango) celdaStatusRango.setValue("❌ Error WebApp al crear REF");
+          continue;
+        }
+        esRefRecienCreada = true;
+      }
+
+      // D) Generar PDF
       if (modeloEncontrado) {
-        // EVALUAR CÓDIGO DE REF (Usar existente o crear consecutivo)
-        let refFinal = "";
-        if (tieneRef) {
-          refFinal = refTexto;
-        } else {
-          refFinal = obtenerSiguienteRefConsecutiva(sheetPropCom);
-        }
-
         try {
-          // PREPARAR NOMBRES Y UBICACIONES
           const zonaSubzonaLimpia = (subzonaStr || zonaStr).toUpperCase();
           const estadoAbreviado = obtenerEstadoFormateado(estadoStr);
           const m2Limpio = m2Sugerida.replace(/[^\d.,]/g, '');
 
-          // Nomenclatura 1: Inventario
           const nombreInventario = `${operacionStr.toUpperCase()} ${m2Limpio} M2 ${zonaSubzonaLimpia} ${estadoAbreviado} ${refFinal}`.toUpperCase();
-
-          // Nomenclatura 2: Cliente (PropCom)
           const nombreCliente = `${partidaStr} - ${refFinal} - ${operacionStr.toUpperCase()} ${m2Limpio} M2 ${zonaSubzonaLimpia} ${estadoAbreviado}`.toUpperCase();
 
-          // Ubicación Inventario (Carpetas Maestra -> Operación -> Estado)
           const folderOperacionInv = obtenerCarpetaOperacionInventario(operacionStr);
           const folderEstadoInv = obtenerOCrearSubcarpeta(folderOperacionInv, estadoStr.toUpperCase() || "SIN ESTADO");
 
-          // GENERACIÓN Y DUALIDAD DE PDF
           const pdfBlob = generarPdfDesdeModelo(
             modeloEncontrado, partidaStr, m2Sugerida, precioM2, precioTotal,
             refFinal, cacheModelos
           );
 
-          // Guardar PDF en Inventario
           pdfBlob.setName(nombreInventario + ".pdf");
-          const pdfFileInv = folderEstadoInv.createFile(pdfBlob);
-          const urlPdfInv = pdfFileInv.getUrl();
+          folderEstadoInv.createFile(pdfBlob);
 
-          // Guardar PDF en Cliente
           const pdfBlobCli = pdfBlob.copyBlob();
           pdfBlobCli.setName(nombreCliente + ".pdf");
           const pdfFileCli = folderCliente.createFile(pdfBlobCli);
           const urlPdfCli = pdfFileCli.getUrl();
 
-          // ACTUALIZAR PROCESO EN TABLA PROPUESTAS COMERCIALES
           const richValueRef = SpreadsheetApp.newRichTextValue()
             .setText(refFinal)
             .setLinkUrl(0, refFinal.length, urlPdfCli)
@@ -242,114 +242,110 @@ function generarFichasPropuestasComerciales() {
           celdaRefRango.setRichTextValue(richValueRef);
           celdaRefRango.setFontLine("underline").setFontColor("#1155cc");
 
-          // ACTUALIZAR INVENTARIO (Pestaña "Naves" -> Columna "Ficha" -> Escribir "CLIC")
-          if (sheetNaves && mapNaves[refFinal.toUpperCase()]) {
-            const navObj = mapNaves[refFinal.toUpperCase()];
-            const celdaFichaNaves = sheetNaves.getRange(navObj.rowIdx, navObj.colFichaIdx);
-            const richValueClic = SpreadsheetApp.newRichTextValue()
-              .setText("CLIC")
-              .setLinkUrl(0, 4, urlPdfInv)
-              .build();
-            celdaFichaNaves.setRichTextValue(richValueClic);
-            celdaFichaNaves.setFontLine("underline").setFontColor("#1155cc");
-          }
+          procesadasConFicha++;
+          if (esRefRecienCreada) refsNuevasConFicha++;
 
-          procesadas++;
-          console.log(`[MODELO OK] Fila ${i + 1} | REF: ${refFinal} → PDFs creados e inventariados.`);
+          logFila += `✅ Creada (${refFinal}) | ${detalleMatch}`;
+          console.log(logFila);
+          if (celdaStatusRango) celdaStatusRango.setValue(`✅ Ficha Creada (${refFinal}) - ${detalleMatch}`);
 
         } catch (err) {
           errores++;
-          console.error(`[ERROR] Fila ${i + 1} | REF: ${refTexto} → ${err.toString()}`);
+          logFila += `❌ Error PDF: ${err.toString()}`;
+          console.error(logFila);
+          if (celdaStatusRango) celdaStatusRango.setValue(`❌ Error creando PDF: ${err.toString()}`);
+        }
+      } else {
+        if (esRefRecienCreada) {
+          celdaRefRango.clearDataValidations();
+          celdaRefRango.setValue(refFinal);
+          celdaRefRango.setFontLine("none").setFontColor("#000000");
+          refsNuevasSinFicha++;
+        } else {
+          existSinFicha++;
         }
 
-      } else {
-        // CASO: "SIN MODELO"
-        if (!tieneRef) {
-          // Sin REF y Sin Modelo: Se crea REF nueva sin hipervínculo en PropCom, no se hace nada en inventario
-          const refNueva = obtenerSiguienteRefConsecutiva(sheetPropCom);
-          celdaRefRango.clearDataValidations();
-          celdaRefRango.setValue(refNueva);
-          celdaRefRango.setFontLine("none").setFontColor("#000000");
-          sinModelo++;
-          console.log(`[SIN MODELO] Fila ${i + 1} | Se generó la REF nueva ${refNueva} sin hipervínculo.`);
-        } else {
-          // Tiene REF y no hay modelo: No se hace nada
-          sinModelo++;
-          console.warn(`[SIN MODELO] Fila ${i + 1} | REF: ${refTexto} | Trío: ${trioKey} - Sin cambios.`);
-        }
+        logFila += `⚠️ ${detalleMatch}`;
+        console.warn(logFila);
+        if (celdaStatusRango) celdaStatusRango.setValue(`⚠️ ${detalleMatch}`);
       }
     }
 
+    // RESUMEN FINAL
+    const totalRefsCreadas = refsNuevasConFicha + refsNuevasSinFicha;
     SpreadsheetApp.getUi().alert(
-      `Proceso finalizado.\n\n✅ Fichas PDF Creadas/Actualizadas: ${procesadas}\n⚠️ Sin Modelo Encontrado / Procesados Sin Ficha: ${sinModelo}\n❌ Errores: ${errores}`
+      `🎉 Proceso finalizado.\n\n` +
+      `🆔 REFs creadas por WebApp: ${totalRefsCreadas}\n` +
+      `   ├─ CON ficha PDF: ${refsNuevasConFicha}\n` +
+      `   └─ SIN ficha PDF (sin plantilla): ${refsNuevasSinFicha}\n\n` +
+      `📄 Total fichas PDF generadas: ${procesadasConFicha}\n` +
+      `⚠️ Filas con REF existente pero sin plantilla: ${existSinFicha}\n` +
+      `❌ Errores / Filas incompletas: ${errores}\n\n` +
+      `📌 Revisa los detalles impresos a la izquierda de la columna Ficha.`
     );
+
   } finally {
     lock.releaseLock();
   }
 }
 
-/**
- * FUNCION AUXILIAR: Obtiene el siguiente consecutivo de REF en la tabla de inventario (Ej. N1155)
- */
-function obtenerSiguienteRefConsecutiva(sheet) {
-  const data = sheet.getDataRange().getValues();
-  let maxNum = 0;
-  let prefijo = "N";
-
-  for (let r = 0; r < data.length; r++) {
-    for (let c = 0; c < data[r].length; c++) {
-      let val = String(data[r][c]).trim();
-      let match = val.match(/^([A-Za-z]+)(\d+)$/);
-      if (match) {
-        let pFix = match[1].toUpperCase();
-        let num = parseInt(match[2], 10);
-        if (pFix === "N" && num > maxNum) {
-          maxNum = num;
-        }
-      }
-    }
+// AUXILIARES CONEXIÓN WEBAPP
+function obtenerMapaHermanasWebAPP() {
+  try {
+    const url = INVENTARIO_WEB_APP_URL + "?action=obtenerMapaHermanas";
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const json = JSON.parse(response.getContentText());
+    return json.status === "success" ? json : { mapaDuo: {}, mapaParqueSolo: {} };
+  } catch (e) {
+    console.error("Error consultando mapa de hermanas a la WebApp: " + e.toString());
+    return { mapaDuo: {}, mapaParqueSolo: {} };
   }
-
-  if (maxNum === 0) maxNum = 1000;
-  return prefijo + (maxNum + 1);
 }
 
-/**
- * ABREVIACIÓN / FORMATEO DE ESTADOS
- */
+function solicitarNuevaRefWebAPP(parque, m2, operacion) {
+  try {
+    const url = INVENTARIO_WEB_APP_URL 
+      + "?action=crearNuevaRef"
+      + "&parque=" + encodeURIComponent(parque)
+      + "&m2=" + encodeURIComponent(m2)
+      + "&operacion=" + encodeURIComponent(operacion);
+
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const json = JSON.parse(response.getContentText());
+    return (json.status === "success" && json.nuevaRef) ? json.nuevaRef : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function extraerCodigoRefLimpio(texto) {
+  if (!texto) return "";
+  const match = String(texto).toUpperCase().match(/N\d+/);
+  return match ? match[0] : String(texto).replace(/[^A-Z0-9]/gi, '').toUpperCase();
+}
+
+function limpiarTextoClave(txt) {
+  if (!txt) return "";
+  return String(txt).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function obtenerEstadoFormateado(estado) {
   if (!estado) return "";
   const estUpper = estado.trim().toUpperCase();
   return ABREVIATURAS_ESTADO[estUpper] || estUpper;
 }
 
-/**
- * OBTENER O CREAR SUBCARPETAS
- */
 function obtenerOCrearSubcarpeta(parentFolder, nombreSubcarpeta) {
   const folders = parentFolder.getFoldersByName(nombreSubcarpeta);
-  if (folders.hasNext()) {
-    return folders.next();
-  }
-  return parentFolder.createFolder(nombreSubcarpeta);
+  return folders.hasNext() ? folders.next() : parentFolder.createFolder(nombreSubcarpeta);
 }
 
-/**
- * RESOLVER CARPETA DE OPERACIÓN EN MAESTRA INVENTARIO
- */
 function obtenerCarpetaOperacionInventario(operacion) {
   const folderMaestra = DriveApp.getFolderById(FOLDER_MAESTRA_INV_ID);
-  const opUpper = operacion.toUpperCase();
-  let nombreSub = "1. RENTA NAVES";
-  if (opUpper.includes("VENTA")) {
-    nombreSub = "2. VENTA NAVES";
-  }
+  const nombreSub = operacion.toUpperCase().includes("VENTA") ? "2. VENTA NAVES" : "1. RENTA NAVES";
   return obtenerOCrearSubcarpeta(folderMaestra, nombreSub);
 }
 
-/**
- * INDEXA LA CARPETA Y SUS SUB-CARPETAS
- */
 function indexarCarpeta(carpeta, cacheModelos, inicioMs) {
   const TIMEOUT_MS = 240000;
   let files = carpeta.getFilesByType(MimeType.GOOGLE_SLIDES);
@@ -364,13 +360,20 @@ function indexarCarpeta(carpeta, cacheModelos, inicioMs) {
 
       for (let i = 0; i < slides.length; i++) {
         try {
-          const texto = extraerTodoElTexto(slides[i]);
-          const tieneVariables = texto.includes("{{M2 de construcción}}") || texto.includes("{{Precio total}}") || texto.includes("{{Asking price /m2}}");
+          const textoCompleto = extraerTodoElTexto(slides[i]);
+          const tieneVariables = textoCompleto.includes("{{M2 de construcción}}") || 
+                                 textoCompleto.includes("{{Precio total}}") || 
+                                 textoCompleto.includes("{{Asking price /m2}}");
+
+          const matchesRef = textoCompleto.match(/N\d+/g) || [];
+          const refsEncontradas = matchesRef.map(r => r.toUpperCase());
+
           cacheModelos.push({
             fileId: file.getId(),
             fileName: file.getName(),
             slideIdx: i,
-            textoLimpio: texto.replace(/\s+/g, '').toUpperCase(),
+            textoRaw: textoCompleto,
+            refsEncontradas: refsEncontradas,
             tieneVariables: tieneVariables
           });
         } catch (eSlide) {}
@@ -385,9 +388,6 @@ function indexarCarpeta(carpeta, cacheModelos, inicioMs) {
   }
 }
 
-/**
- * EXTRAE TODO EL TEXTO DE UN SLIDE
- */
 function extraerTodoElTexto(slide) {
   const textos = [];
   slide.getPageElements().forEach(el => {
@@ -409,9 +409,6 @@ function extraerTodoElTexto(slide) {
   return textos.join(" ");
 }
 
-/**
- * GENERA EL BLOB DEL PDF A PARTIR DE UN MODELO DE SLIDE
- */
 function generarPdfDesdeModelo(modelo, partida, m2, precio, precioTotal, refNueva, cacheModelos) {
   const moldeDeck = SlidesApp.openById(modelo.fileId);
   const slides = moldeDeck.getSlides();
@@ -433,11 +430,9 @@ function generarPdfDesdeModelo(modelo, partida, m2, precio, precioTotal, refNuev
   const m2Formateado = String(m2).toLowerCase().includes("m") ? m2 : `${m2} m²`;
   const nombreTemp = `TEMP_${partida}_${refNueva}`;
 
-  // Copia temporal de la presentación
   const copiaFile = DriveApp.getFileById(modelo.fileId).makeCopy(nombreTemp);
   const nuevaDeck = SlidesApp.openById(copiaFile.getId());
 
-  // Limpiar slides sobrantes
   const slidesNuevos = nuevaDeck.getSlides();
   for (let i = slidesNuevos.length - 1; i >= 0; i--) {
     if (!idsAConservar.includes(slidesNuevos[i].getObjectId())) {
@@ -445,7 +440,6 @@ function generarPdfDesdeModelo(modelo, partida, m2, precio, precioTotal, refNuev
     }
   }
 
-  // Reemplazar etiquetas solicitadas
   nuevaDeck.getSlides().forEach(s => {
     s.getPageElements().forEach(el => {
       if (el.getPageElementType() === SlidesApp.PageElementType.SHAPE) {
@@ -484,7 +478,6 @@ function generarPdfDesdeModelo(modelo, partida, m2, precio, precioTotal, refNuev
 
   nuevaDeck.saveAndClose();
 
-  // OBTENER PDF BLOB Y ELIMINAR TEMPORAL DE SLIDES
   const pdfBlob = copiaFile.getAs(MimeType.PDF);
   copiaFile.setTrashed(true);
 
