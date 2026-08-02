@@ -14,6 +14,9 @@ function prepararCliente() {
   const hoja = ss.getActiveSheet();
   const nombreCliente = hoja.getName().trim();
 
+  // Declaramos fechaHoy por si se requiere para el ZIP y la celda
+  const fechaHoy = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "dd-MM-yy");
+
   try {
     const data = hoja.getDataRange().getValues();
     const richTextValues = hoja.getDataRange().getRichTextValues();
@@ -47,17 +50,13 @@ function prepararCliente() {
       const valPartidaRaw = data[r][idxPartida];
       const strPartida = String(valPartidaRaw).trim();
 
-      // REGLE DE BLINDAJE: Si la columna Partida no es un número entero (ej. está vacía, o es nota/mapa), 
-      // asumimos que terminó la tabla principal o es una fila no válida.
       if (!/^\d+$/.test(strPartida)) {
-        // Si encontramos texto que no es número después de la tabla, detenemos la lectura
         if (strPartida !== "" && elementosAProcesar.length > 0) {
           break; 
         }
         continue;
       }
 
-      // Validar si la celda REF tiene hipervínculo activo
       const celdaRichText = richTextValues[r][idxRef];
       if (!celdaRichText) continue;
 
@@ -75,9 +74,8 @@ function prepararCliente() {
         }
       }
 
-      // SOLO AGREGAR SI LA REF TIENE UN LINK ACTIVO
       if (linkUrl) {
-        const numPartidaFormatted = strPartida.padStart(2, '0'); // Convierte "1" en "01"
+        const numPartidaFormatted = strPartida.padStart(2, '0');
 
         elementosAProcesar.push({
           numPartida: numPartidaFormatted,
@@ -92,14 +90,13 @@ function prepararCliente() {
       return;
     }
 
-    // 3. CREAR O LIMPIAR SUBCARPETA ÚNICA DEL CLIENTE EN DRIVE
-  // Se elimina el uso de la fecha en el nombre de la carpeta
-  const carpetaCliente = obtenerOCrearCarpetaClienteSameDay_(nombreCliente);
+    // 3. CREAR O LIMPIAR SUBCARPETA ÚNICA DEL CLIENTE (SIN FECHA EN LA CARPETA)
+    const carpetaCliente = obtenerOCrearCarpetaClienteSameDay_(nombreCliente);
 
     let contador = 0;
     const archivosGuardados = [];
 
-    // 4. DESCARGAR Y RENOMBRAR CON EL FORMATO "XX - REF - RESTO DEL TÍTULO"
+    // 4. DESCARGAR Y RENOMBRAR ARCHIVOS
     elementosAProcesar.forEach((item) => {
       const itemId = extraerIdFromUrl_(item.linkUrl);
       if (!itemId) return;
@@ -132,16 +129,16 @@ function prepararCliente() {
     const archivoZipBlob = Utilities.zip(blobsParaZip, nombreZip);
     const archivoZipDrive = carpetaCliente.createFile(archivoZipBlob);
 
-    // 6. ESCRIBIR HIPERVÍNCULOS EN LA COLUMNA D (COLUMNA 4)
+    // 6. ESCRIBIR HIPERVÍNCULOS EN LA COLUMNA D
     const ultimaFila = hoja.getLastRow();
     const filaBase = ultimaFila + 2;
 
     const urlCarpeta = carpetaCliente.getUrl();
     const urlZip = archivoZipDrive.getDownloadUrl();
 
-    // Link a la Carpeta de Drive
+    // Link a la Carpeta de Drive (Nombre limpio sin fecha)
     const celdaCarpeta = hoja.getRange(filaBase, 4);
-    celdaCarpeta.setFormula(`=HYPERLINK("${urlCarpeta}", "📁 Carpeta de Fichas (${nombreCliente} - ${fechaHoy})")`);
+    celdaCarpeta.setFormula(`=HYPERLINK("${urlCarpeta}", "📁 Carpeta de Fichas (${nombreCliente})")`);
     celdaCarpeta.setFontWeight("bold").setFontColor("#1155cc");
 
     // Link al Archivo ZIP
