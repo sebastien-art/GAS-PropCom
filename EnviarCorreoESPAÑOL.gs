@@ -1,133 +1,78 @@
 /***************************************************************
- * ENVIAR PDF PROPUESTA FINAL POR CORREO (DESDE CARPETA DEL CLIENTE)
+ * ENVIAR CORREOS DE PROPUESTAS Y/O FICHAS TÉCNICAS
+ * + Caso A: Solo Fichas Técnicas (enviarFichasCliente)
+ * + Caso B: Solo Propuesta PDF (EnviarPropuestaFinalPDFPorCorreo)
+ * + Caso C: Propuesta + Fichas Técnicas (enviarPropuestaYFichasCliente)
  * + Inserta/actualiza tabla de log desde columna D
- * + Lee la firma REAL de Gmail (SendAs.signature) y la añade al correo
- *
- * ✅ FIX solicitado:
- * - Limpia la firma para evitar la línea "(anexo)" antes de la firma.
- * - Quita <img> embebidos y elimina "(anexo)" si viene en la firma.
- *
- * Popups:
- *  1) Nombre del cliente (para "Estimado XXX")
- *  2) Correo destino
- *  3) Nombre de la carpeta del cliente (Drive)
+ * + Lee la firma REAL de Gmail (SendAs.signature) y la añade limpia al correo
  ***************************************************************/
 
-function EnviarPropuestaFinalPDFPorCorreo() {
+// =============================================================================
+// CASO A: ENVIAR SOLO FICHAS TÉCNICAS
+// =============================================================================
+function enviarFichasCliente() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getActiveSheet();
   const ui = SpreadsheetApp.getUi();
 
-  // 1) Nombre del cliente
-  const rNombre = ui.prompt(
-    "Nombre del cliente",
-    'Escribe el nombre para el saludo (saldrá como "Estimado XXX").\nEj: Juan Pérez',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (rNombre.getSelectedButton() !== ui.Button.OK) return;
+  const datosModal = pedirDatosEnvio_(ui);
+  if (!datosModal) return;
 
-  const nombreCliente = String(rNombre.getResponseText() || "").trim();
-  if (!nombreCliente) throw new Error("El nombre del cliente es obligatorio.");
-
-  // 2) Correo destino
-  const rEmail = ui.prompt(
-    "Correo para envío",
-    "Escribe el correo del destinatario.\nEj: cliente@empresa.com",
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (rEmail.getSelectedButton() !== ui.Button.OK) return;
-
-  const email = String(rEmail.getResponseText() || "").trim();
-  if (!isValidEmail_(email)) throw new Error("El correo no parece válido: " + email);
-
-  // 3) Carpeta del cliente
-  const rFolder = ui.prompt(
-    "Carpeta del cliente (Drive)",
-    "Escribe el nombre exacto de la carpeta donde está el PDF.",
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (rFolder.getSelectedButton() !== ui.Button.OK) return;
-
-  const folderName = String(rFolder.getResponseText() || "").trim() || nombreCliente;
-
+  const { nombreCliente, email, folderName } = datosModal;
   let status = "ENVIADO";
   let pdfName = "";
 
   try {
-    // === Buscar carpeta
     const folder = getFirstFolderByName_(folderName);
     if (!folder) throw new Error('No encontré una carpeta en Drive con el nombre: "' + folderName + '".');
 
-    // === Buscar PDF (prioriza "propuesta"; si no, el más reciente)
-    const pdfFile = findBestPdfInFolder_(folder);
-    if (!pdfFile) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
-    pdfName = pdfFile.getName();
+    const itFiles = folder.getFilesByType(MimeType.PDF);
+    const attachments = [];
+    const pdfNames = [];
 
-    // === Cuerpo EXACTO pedido
+    while (itFiles.hasNext()) {
+      const f = itFiles.next();
+      attachments.push(f.getBlob().setName(f.getName()));
+      pdfNames.push(f.getName());
+    }
+
+    if (attachments.length === 0) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
+    pdfName = pdfNames.join(", ");
+
     const plainBodyBase =
-      "Hola " + nombreCliente + ",\n" +
-      "Te comparto en este correo el PDF con las propuestas de naves industriales conforme a tu requerimiento.\n" +
-      "Si buscas más o menos superficie, otra zona, o necesitas confirmar algún punto técnico, nos dices y ajustamos el documento con otras propuestas. Y si quieres ver fichas técnicas a detalle o agendar recorridos, con gusto lo coordinamos.\n" +
+      "Hola " + nombreCliente + ",\n\n" +
+      "Te comparto en este correo las fichas técnicas de las opciones de naves industriales que consideramos se ajustan a tu requerimiento.\n\n" +
+      "Si buscas una superficie mayor o menor, otra ubicación, o deseas confirmar algún aspecto técnico, con gusto ajustamos la selección y te enviamos nuevas opciones.\n\n" +
+      "Si deseas agendar recorridos para conocer las propiedades, con gusto lo coordinamos con 1 a 2 días hábiles de anticipación.\n\n" +
       "Quedo a tu disposición.\n";
 
     const htmlBodyBase =
       '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">' +
         "<p>Hola " + escapeHtml_(nombreCliente) + ",</p>" +
-        "<p>Te comparto en este correo el PDF con las propuestas de naves industriales conforme a tu requerimiento.</p>" +
-        "<p>Si buscas más o menos superficie, otra zona, o necesitas confirmar algún punto técnico, nos dices y ajustamos el documento con otras propuestas. Y si quieres ver fichas técnicas a detalle o agendar recorridos, con gusto lo coordinamos.</p>" +
+        "<p>Te comparto en este correo las fichas técnicas de las opciones de naves industriales que consideramos se ajustan a tu requerimiento.</p>" +
+        "<p>Si buscas una superficie mayor o menor, otra ubicación, o deseas confirmar algún aspecto técnico, con gusto ajustamos la selección y te enviamos nuevas opciones.</p>" +
+        "<p>Si deseas agendar recorridos para conocer las propiedades, con gusto lo coordinamos con 1 a 2 días hábiles de anticipación.</p>" +
         "<p>Quedo a tu disposición.</p>" +
       "</div>";
 
-    const subject = "Propuestas de naves industriales - Industrial Estate Mexico";
+    const subject = "Fichas técnicas de naves industriales - Industrial Estate Mexico";
 
-    // === Firma real según quién ejecuta
-    const execEmail = getExecutingUserEmail_();
-    const sendAsEmail = pickSendAsEmail_(execEmail);
-    const signatureHtml = getGmailSignatureHtml_(sendAsEmail);
+    enviarCorreoProcesado_({
+      email,
+      subject,
+      plainBodyBase,
+      htmlBodyBase,
+      attachments
+    });
 
-    // ✅ FIX: limpiar firma para evitar "(anexo)"
-    const finalHtmlBody = appendSignatureHtml_(htmlBodyBase, signatureHtml);
-
-    // ✅ FIX: limpiar firma también en texto plano
-    let signaturePlain = htmlToPlain_(sanitizeSignatureHtml_(signatureHtml));
-    signaturePlain = signaturePlain
-      .split("\n")
-      .map(l => l.trim())
-      .filter(l => {
-        const x = l.toLowerCase();
-        return x !== "anexo" && x !== "(anexo)";
-      })
-      .join("\n")
-      .trim();
-
-    const finalPlainBody = plainBodyBase + (signaturePlain ? ("\n\n" + signaturePlain) : "");
-
-    // Logs de diagnóstico (opcional; ver en View > Logs)
-    Logger.log("Executing user: " + execEmail);
-    Logger.log("Send-as email: " + sendAsEmail);
-    Logger.log("Sig len raw: " + String(signatureHtml || "").length);
-    Logger.log("Sig len plain: " + signaturePlain.length);
-    Logger.log("Final html len: " + finalHtmlBody.length);
-
-    // === Envío
-    MailApp.sendEmail({
-  to: email,
-  cc: "sebastien@industrialestatemexico.com",   // <-- AQUÍ
-  subject: subject,
-  body: finalPlainBody,
-  htmlBody: finalHtmlBody,
-  attachments: [pdfFile.getBlob().setName(pdfFile.getName())]
-});
-
-    ss.toast("Correo enviado a " + email + " (adjunto: " + pdfFile.getName() + ")", "Enviar PDF", 5);
+    ss.toast("Correo enviado a " + email + " (" + attachments.length + " fichas adjuntas)", "Enviar Fichas", 5);
 
   } catch (e) {
     status = "ERROR: " + String(e && e.message ? e.message : e).slice(0, 180);
-    ss.toast("No se pudo enviar: " + status, "Enviar PDF", 6);
+    ss.toast("No se pudo enviar: " + status, "Enviar Fichas", 6);
     throw e;
 
   } finally {
-    // === Log en tabla desde columna D
     appendEnvioLog_(sheet, {
       nombre: nombreCliente,
       correo: email,
@@ -139,11 +84,220 @@ function EnviarPropuestaFinalPDFPorCorreo() {
   }
 }
 
-/***************************************************************
- * ✅ FIX: Sanitizar firma para evitar "(anexo)"
- * - Quita imágenes embebidas (<img>) que suelen disparar "(anexo)"
- * - Quita "(anexo)" si viene dentro de la firma
- ***************************************************************/
+// =============================================================================
+// CASO B: ENVIAR SOLO RESUMEN / PROPUESTA PDF
+// =============================================================================
+function EnviarPropuestaFinalPDFPorCorreo() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+  const ui = SpreadsheetApp.getUi();
+
+  const datosModal = pedirDatosEnvio_(ui);
+  if (!datosModal) return;
+
+  const { nombreCliente, email, folderName } = datosModal;
+  let status = "ENVIADO";
+  let pdfName = "";
+
+  try {
+    const folder = getFirstFolderByName_(folderName);
+    if (!folder) throw new Error('No encontré una carpeta en Drive con el nombre: "' + folderName + '".');
+
+    const pdfFile = findBestPdfInFolder_(folder);
+    if (!pdfFile) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
+    pdfName = pdfFile.getName();
+
+    const plainBodyBase =
+      "Hola " + nombreCliente + ",\n\n" +
+      "Te comparto en este correo el PDF con las propuestas de naves industriales que consideramos se ajustan a tu requerimiento.\n\n" +
+      "Si buscas una superficie mayor o menor, otra ubicación, o deseas confirmar algún aspecto técnico, con gusto ajustamos la propuesta y te enviamos nuevas opciones.\n\n" +
+      "Si deseas revisar las fichas técnicas de alguna de las partidas incluidas en la propuesta, indícanos cuáles son de tu interés y con gusto te las enviaremos.\n\n" +
+      "Si deseas agendar recorridos para conocer las propiedades, con gusto lo coordinamos con 1 a 2 días hábiles de anticipación.\n\n" +
+      "Quedo a tu disposición.\n";
+
+    const htmlBodyBase =
+      '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">' +
+        "<p>Hola " + escapeHtml_(nombreCliente) + ",</p>" +
+        "<p>Te comparto en este correo el PDF con las propuestas de naves industriales que consideramos se ajustan a tu requerimiento.</p>" +
+        "<p>Si buscas una superficie mayor o menor, otra ubicación, o deseas confirmar algún aspecto técnico, con gusto ajustamos la propuesta y te enviamos nuevas opciones.</p>" +
+        "<p>Si deseas revisar las fichas técnicas de alguna de las partidas incluidas en la propuesta, indícanos cuáles son de tu interés y con gusto te las enviaremos.</p>" +
+        "<p>Si deseas agendar recorridos para conocer las propiedades, con gusto lo coordinamos con 1 a 2 días hábiles de anticipación.</p>" +
+        "<p>Quedo a tu disposición.</p>" +
+      "</div>";
+
+    const subject = "Propuesta de naves industriales - Industrial Estate Mexico";
+
+    enviarCorreoProcesado_({
+      email,
+      subject,
+      plainBodyBase,
+      htmlBodyBase,
+      attachments: [pdfFile.getBlob().setName(pdfFile.getName())]
+    });
+
+    ss.toast("Correo enviado a " + email + " (adjunto: " + pdfFile.getName() + ")", "Enviar Propuesta", 5);
+
+  } catch (e) {
+    status = "ERROR: " + String(e && e.message ? e.message : e).slice(0, 180);
+    ss.toast("No se pudo enviar: " + status, "Enviar Propuesta", 6);
+    throw e;
+
+  } finally {
+    appendEnvioLog_(sheet, {
+      nombre: nombreCliente,
+      correo: email,
+      estatus: status,
+      fecha: new Date(),
+      archivo: pdfName,
+      carpeta: folderName
+    });
+  }
+}
+
+// =============================================================================
+// CASO C: ENVIAR PROPUESTA (RESUMEN) + FICHAS TÉCNICAS (COMBINADAS)
+// =============================================================================
+function enviarPropuestaYFichasCliente() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+  const ui = SpreadsheetApp.getUi();
+
+  const datosModal = pedirDatosEnvio_(ui);
+  if (!datosModal) return;
+
+  const { nombreCliente, email, folderName } = datosModal;
+  let status = "ENVIADO";
+  let pdfName = "";
+
+  try {
+    const folder = getFirstFolderByName_(folderName);
+    if (!folder) throw new Error('No encontré una carpeta en Drive con el nombre: "' + folderName + '".');
+
+    const itFiles = folder.getFilesByType(MimeType.PDF);
+    const attachments = [];
+    const pdfNames = [];
+
+    while (itFiles.hasNext()) {
+      const f = itFiles.next();
+      attachments.push(f.getBlob().setName(f.getName()));
+      pdfNames.push(f.getName());
+    }
+
+    if (attachments.length === 0) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
+    pdfName = pdfNames.join(", ");
+
+    const plainBodyBase =
+      "Hola " + nombreCliente + ",\n\n" +
+      "Te comparto en este correo la propuesta comercial, junto con las fichas técnicas correspondientes a las opciones de naves industriales que consideramos se ajustan a tu requerimiento.\n\n" +
+      "Si buscas una superficie mayor o menor, otra ubicación, o deseas confirmar algún aspecto técnico, con gusto ajustamos la selección y te enviamos nuevas opciones.\n\n" +
+      "Si deseas agendar recorridos para conocer las propiedades, con gusto lo coordinamos con 1 a 2 días hábiles de anticipación.\n\n" +
+      "Saludos.\n";
+
+    const htmlBodyBase =
+      '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">' +
+        "<p>Hola " + escapeHtml_(nombreCliente) + ",</p>" +
+        "<p>Te comparto en este correo la propuesta comercial, junto con las fichas técnicas correspondientes a las opciones de naves industriales que consideramos se ajustan a tu requerimiento.</p>" +
+        "<p>Si buscas una superficie mayor o menor, otra ubicación, o deseas confirmar algún aspecto técnico, con gusto ajustamos la selección y te enviamos nuevas opciones.</p>" +
+        "<p>Si deseas agendar recorridos para conocer las propiedades, con gusto lo coordinamos con 1 a 2 días hábiles de anticipación.</p>" +
+        "<p>Saludos.</p>" +
+      "</div>";
+
+    const subject = "Propuesta y fichas técnicas de naves industriales - Industrial Estate Mexico";
+
+    enviarCorreoProcesado_({
+      email,
+      subject,
+      plainBodyBase,
+      htmlBodyBase,
+      attachments
+    });
+
+    ss.toast("Correo enviado a " + email + " (" + attachments.length + " adjuntos)", "Enviar Propuesta y Fichas", 5);
+
+  } catch (e) {
+    status = "ERROR: " + String(e && e.message ? e.message : e).slice(0, 180);
+    ss.toast("No se pudo enviar: " + status, "Enviar Propuesta y Fichas", 6);
+    throw e;
+
+  } finally {
+    appendEnvioLog_(sheet, {
+      nombre: nombreCliente,
+      correo: email,
+      estatus: status,
+      fecha: new Date(),
+      archivo: pdfName,
+      carpeta: folderName
+    });
+  }
+}
+
+// =============================================================================
+// FUNCIONES AUXILIARES DE PROCESAMIENTO Y ENVÍO DE EMAIL
+// =============================================================================
+
+function pedirDatosEnvio_(ui) {
+  const rNombre = ui.prompt(
+    "Nombre del cliente",
+    'Escribe el nombre para el saludo (saldrá como "Hola XXX").\nEj: Juan Pérez',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (rNombre.getSelectedButton() !== ui.Button.OK) return null;
+
+  const nombreCliente = String(rNombre.getResponseText() || "").trim();
+  if (!nombreCliente) throw new Error("El nombre del cliente es obligatorio.");
+
+  const rEmail = ui.prompt(
+    "Correo para envío",
+    "Escribe el correo del destinatario.\nEj: cliente@empresa.com",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (rEmail.getSelectedButton() !== ui.Button.OK) return null;
+
+  const email = String(rEmail.getResponseText() || "").trim();
+  if (!isValidEmail_(email)) throw new Error("El correo no parece válido: " + email);
+
+  const rFolder = ui.prompt(
+    "Carpeta del cliente (Drive)",
+    "Escribe el nombre exacto de la carpeta donde están los archivos.",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (rFolder.getSelectedButton() !== ui.Button.OK) return null;
+
+  const folderName = String(rFolder.getResponseText() || "").trim() || nombreCliente;
+
+  return { nombreCliente, email, folderName };
+}
+
+function enviarCorreoProcesado_(opts) {
+  const execEmail = getExecutingUserEmail_();
+  const sendAsEmail = pickSendAsEmail_(execEmail);
+  const signatureHtml = getGmailSignatureHtml_(sendAsEmail);
+
+  const finalHtmlBody = appendSignatureHtml_(opts.htmlBodyBase, signatureHtml);
+
+  let signaturePlain = htmlToPlain_(sanitizeSignatureHtml_(signatureHtml));
+  signaturePlain = signaturePlain
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => {
+      const x = l.toLowerCase();
+      return x !== "anexo" && x !== "(anexo)";
+    })
+    .join("\n")
+    .trim();
+
+  const finalPlainBody = opts.plainBodyBase + (signaturePlain ? ("\n\n" + signaturePlain) : "");
+
+  MailApp.sendEmail({
+    to: opts.email,
+    cc: "sebastien@industrialestatemexico.com",
+    subject: opts.subject,
+    body: finalPlainBody,
+    htmlBody: finalHtmlBody,
+    attachments: opts.attachments
+  });
+}
+
 function sanitizeSignatureHtml_(signatureHtml) {
   let sig = String(signatureHtml || "").trim();
   if (!sig) return "";
@@ -156,10 +310,7 @@ function sanitizeSignatureHtml_(signatureHtml) {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<!--[\s\S]*?-->/g, "");
 
-  // ✅ Quita separadores horizontales dentro de la firma
   sig = sig.replace(/<hr\b[^>]*>/gi, "");
-
-  // Quitar imágenes embebidas
   sig = sig.replace(/<a\b[^>]*>\s*<img\b[^>]*>\s*<\/a>/gi, "");
   sig = sig.replace(/<img\b[^>]*>/gi, "");
 
@@ -170,23 +321,19 @@ function appendSignatureHtml_(htmlBody, signatureHtml) {
   const sig = sanitizeSignatureHtml_(signatureHtml);
   if (!sig) return htmlBody;
 
-  // ✅ Sin border-top (sin separador)
   const wrapper = '<div style="margin-top:14px;">' + sig + "</div>";
   return htmlBody + wrapper;
 }
-  
 
-/***************************************************************
- * LOG EN HOJA (TABLA DESDE COLUMNA D)
- ***************************************************************/
+// =============================================================================
+// LOG EN HOJA (TABLA DESDE COLUMNA D)
+// =============================================================================
 function appendEnvioLog_(sheet, rowObj) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const colStart = 4; // ✅ Columna D
+  const colStart = 4; // Columna D
   const meta = getOrCreateEnvioLogTable_(sheet, colStart);
 
   const dataStartRow = meta.headerRow + 1;
-
-  // Encuentra siguiente fila libre (columna "Nombre")
   const lastRow = Math.max(sheet.getLastRow(), dataStartRow);
   const vals = sheet.getRange(dataStartRow, colStart, lastRow - dataStartRow + 1, 1).getValues().flat();
 
@@ -232,7 +379,6 @@ function getOrCreateEnvioLogTable_(sheet, colStart) {
     .setValues([headers])
     .setFontWeight("bold");
 
-  // Anchos (opcional)
   try {
     sheet.setColumnWidth(colStart + 0, 180);
     sheet.setColumnWidth(colStart + 1, 220);
@@ -245,9 +391,9 @@ function getOrCreateEnvioLogTable_(sheet, colStart) {
   return { titleRow: startRow, headerRow: startRow + 1, colStart: colStart };
 }
 
-/***************************************************************
- * DRIVE HELPERS (PDF dentro de carpeta)
- ***************************************************************/
+// =============================================================================
+// DRIVE HELPERS
+// =============================================================================
 function getFirstFolderByName_(name) {
   const it = DriveApp.getFoldersByName(name);
   return it.hasNext() ? it.next() : null;
@@ -283,9 +429,9 @@ function findBestPdfInFolder_(folder) {
   return bestPropuesta || bestAny;
 }
 
-/***************************************************************
- * FIRMA REAL DESDE GMAIL (Gmail Advanced Service)
- ***************************************************************/
+// =============================================================================
+// FIRMA REAL DESDE GMAIL (Gmail Advanced Service)
+// =============================================================================
 function getExecutingUserEmail_() {
   let email = "";
   try { email = Session.getEffectiveUser().getEmail(); } catch (e) {}
@@ -346,9 +492,6 @@ function htmlToPlain_(html) {
     .trim();
 }
 
-/***************************************************************
- * STRING HELPERS
- ***************************************************************/
 function isValidEmail_(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }

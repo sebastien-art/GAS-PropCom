@@ -4,7 +4,7 @@
 
 // IDs de Carpetas
 const CARPETA_ORIGEN_ID      = '1xSLs5GHRHbm9OMJwQldxmipNIhPT8eVc';
-const FOLDER_MAESTRA_INV_ID = '1E9291Gm9a2wdYRqL9uglDUTLNxojfelb';
+const FOLDER_MAESTRA_INV_ID = '1E921Gm9a2wdyRYqL9ug1DUTLNxojfelb';
 const FOLDER_MAESTRA_CLI_ID = '1CNxLz5Xj4P3qwMSTa4uHgbcb_Wy5pwue';
 
 // URL de la WebApp de Inventario
@@ -42,7 +42,6 @@ function generarFichasPropuestasComerciales() {
 
     const ssActive = SpreadsheetApp.getActiveSpreadsheet();
     const sheetPropCom = ssActive.getActiveSheet();
-    const nombreClienteFolder = sheetPropCom.getName().trim().toUpperCase();
     const rawData = sheetPropCom.getDataRange().getDisplayValues();
 
     console.log("=== INICIO DE PROCESO DE GENERACIÓN DE FICHAS ===");
@@ -86,8 +85,6 @@ function generarFichasPropuestasComerciales() {
       return;
     }
 
-    // La columna para escribir la explicación será la celda a la izquierda de 'Ficha' (si 'Ficha' existe)
-    // De lo contrario, a la izquierda de 'REF'
     const colTargetExplicacion = col.ficha > 0 ? (col.ficha - 1) : (col.ref > 0 ? col.ref - 1 : -1);
 
     // 3. CONSULTAR MAPA DE HERMANAS DE INVENTARIO VÍA WEBAPP
@@ -108,8 +105,6 @@ function generarFichasPropuestasComerciales() {
       return;
     }
 
-    const folderCliente = obtenerOCrearSubcarpeta(DriveApp.getFolderById(FOLDER_MAESTRA_CLI_ID), nombreClienteFolder);
-
     // 5. PROCESAMIENTO DE FILAS
     let procesadasConFicha = 0;
     let refsNuevasConFicha = 0;
@@ -127,7 +122,18 @@ function generarFichasPropuestasComerciales() {
       const celdaStatusRango = colTargetExplicacion !== -1 ? sheetPropCom.getRange(numFilaReal, colTargetExplicacion + 1) : null;
 
       let refTexto = celdaRefRango.getValue().toString().trim();
-      const tieneRefOriginal = refTexto && refTexto.toUpperCase() !== "CREAR" && refTexto.toLowerCase() !== "seleccionar...";
+      
+      // ✅ NUEVA LÓGICA DE CONDICIÓN REF:
+      // - Si dice "CREAR" -> Se solicitará REF nueva.
+      // - Si tiene otro texto (ej. "N3056") -> Es una REF existente.
+      // - Si está vacía o dice "Seleccionar..." u otro valor no válido -> Se ignora completamente.
+      const esSolicitudCrear = refTexto.toUpperCase() === "CREAR";
+      const tieneRefExistente = refTexto && !esSolicitudCrear && refTexto.toLowerCase() !== "seleccionar...";
+
+      if (!esSolicitudCrear && !tieneRefExistente) {
+        // Ignorar fila si la celda está vacía o dice "Seleccionar..."
+        continue;
+      }
 
       const devStr       = col.desarrollador !== -1 ? row[col.desarrollador].toString().trim() : "";
       const parqStr      = col.parque !== -1 ? row[col.parque].toString().trim() : "";
@@ -152,8 +158,8 @@ function generarFichasPropuestasComerciales() {
       let modeloEncontrado = null;
       let detalleMatch = "";
 
-      // A) Búsqueda directa por REF original
-      if (tieneRefOriginal) {
+      // A) Búsqueda directa por REF si ya existía
+      if (tieneRefExistente) {
         const refLimpia = extraerCodigoRefLimpio(refTexto);
         modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.refsEncontradas.includes(refLimpia));
         if (modeloEncontrado) {
@@ -191,9 +197,10 @@ function generarFichasPropuestasComerciales() {
       let refFinal = "";
       let esRefRecienCreada = false;
 
-      if (tieneRefOriginal) {
+      if (tieneRefExistente) {
         refFinal = refTexto;
-      } else {
+      } else if (esSolicitudCrear) {
+        // Únicamente crea REF si decía "CREAR"
         const numSugM2 = parseFloat(String(m2Sugerida).replace(/[^\d.]/g, "")) || 0;
         refFinal = solicitarNuevaRefWebAPP(parqStr, numSugM2, operacionStr);
         
@@ -215,7 +222,6 @@ function generarFichasPropuestasComerciales() {
           const m2Limpio = m2Sugerida.replace(/[^\d.,]/g, '');
 
           const nombreInventario = `${operacionStr.toUpperCase()} ${m2Limpio} M2 ${zonaSubzonaLimpia} ${estadoAbreviado} ${refFinal}`.toUpperCase();
-          const nombreCliente = `${partidaStr} - ${refFinal} - ${operacionStr.toUpperCase()} ${m2Limpio} M2 ${zonaSubzonaLimpia} ${estadoAbreviado}`.toUpperCase();
 
           const folderOperacionInv = obtenerCarpetaOperacionInventario(operacionStr);
           const folderEstadoInv = obtenerOCrearSubcarpeta(folderOperacionInv, estadoStr.toUpperCase() || "SIN ESTADO");
@@ -226,16 +232,12 @@ function generarFichasPropuestasComerciales() {
           );
 
           pdfBlob.setName(nombreInventario + ".pdf");
-          folderEstadoInv.createFile(pdfBlob);
-
-          const pdfBlobCli = pdfBlob.copyBlob();
-          pdfBlobCli.setName(nombreCliente + ".pdf");
-          const pdfFileCli = folderCliente.createFile(pdfBlobCli);
-          const urlPdfCli = pdfFileCli.getUrl();
+          const pdfFileInv = folderEstadoInv.createFile(pdfBlob);
+          const urlPdfInv = pdfFileInv.getUrl();
 
           const richValueRef = SpreadsheetApp.newRichTextValue()
             .setText(refFinal)
-            .setLinkUrl(0, refFinal.length, urlPdfCli)
+            .setLinkUrl(0, refFinal.length, urlPdfInv)
             .build();
 
           celdaRefRango.clearDataValidations();
