@@ -92,9 +92,9 @@ function prepararCliente() {
       return;
     }
 
-    // 3. CREAR O LIMPIAR SUBCARPETA DEL CLIENTE EN DRIVE
-    const fechaHoy = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "dd-MM-yy");
-    const carpetaCliente = obtenerOCrearCarpetaClienteSameDay_(nombreCliente, fechaHoy);
+    // 3. CREAR O LIMPIAR SUBCARPETA ÚNICA DEL CLIENTE EN DRIVE
+  // Se elimina el uso de la fecha en el nombre de la carpeta
+  const carpetaCliente = obtenerOCrearCarpetaClienteSameDay_(nombreCliente);
 
     let contador = 0;
     const archivosGuardados = [];
@@ -216,21 +216,27 @@ function obtenerPdfYNombreOriginal_(itemId, linkUrl) {
   return null;
 }
 
-function obtenerOCrearCarpetaClienteSameDay_(nombreCliente, fechaHoy) {
+function obtenerOCrearCarpetaClienteSameDay_(nombreCliente) {
   let carpetaPadre = DriveApp.getFolderById(FOLDER_ID_PROPUESTAS_CLIENTES);
-  const nombreCarpeta = `${nombreCliente} - ${fechaHoy}`;
-  const subcarpetas = carpetaPadre.getFoldersByName(nombreCarpeta);
+  
+  // Búsqueda flexible (ignora espacios extra y mayúsculas/minúsculas)
+  const subcarpetas = carpetaPadre.getFolders();
+  const nombreLimpio = nombreCliente.trim().toLowerCase();
 
-  if (subcarpetas.hasNext()) {
-    const carpetaExistente = subcarpetas.next();
-    const archivos = carpetaExistente.getFiles();
-    while (archivos.hasNext()) {
-      archivos.next().setTrashed(true);
+  while (subcarpetas.hasNext()) {
+    const carpeta = subcarpetas.next();
+    if (carpeta.getName().trim().toLowerCase() === nombreLimpio) {
+      // Si la carpeta existe, borra los archivos viejos antes de guardar los nuevos
+      const archivos = carpeta.getFiles();
+      while (archivos.hasNext()) {
+        archivos.next().setTrashed(true);
+      }
+      return carpeta;
     }
-    return carpetaExistente;
-  } else {
-    return carpetaPadre.createFolder(nombreCarpeta);
   }
+
+  // Si no existe ninguna carpeta con el nombre del cliente, la crea a secas
+  return carpetaPadre.createFolder(nombreCliente.trim());
 }
 
 function extraerIdFromUrl_(url) {

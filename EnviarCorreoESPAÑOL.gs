@@ -1,11 +1,15 @@
 /***************************************************************
  * ENVIAR CORREOS DE PROPUESTAS Y/O FICHAS TÉCNICAS
- * + Caso A: Solo Fichas Técnicas (enviarFichasCliente)
- * + Caso B: Solo Propuesta PDF (EnviarPropuestaFinalPDFPorCorreo)
- * + Caso C: Propuesta + Fichas Técnicas (enviarPropuestaYFichasCliente)
+ * + Caso A: Solo Fichas Técnicas (enviarFichasCliente) -> Busca en CARPETA_FICHAS_ID
+ * + Caso B: Solo Propuesta PDF (EnviarPropuestaFinalPDFPorCorreo) -> Busca en CARPETA_PROPUESTAS_ID
+ * + Caso C: Propuesta + Fichas Técnicas (enviarPropuestaYFichasCliente) -> Busca en AMBAS carpetas
  * + Inserta/actualiza tabla de log desde columna D
  * + Lee la firma REAL de Gmail (SendAs.signature) y la añade limpia al correo
  ***************************************************************/
+
+// IDs de las Carpetas Padre
+const ID_RAIZ_PROPUESTAS = "13aW3gRhAHuVlF2Wqc4R1KLqe3ZucQSPX";
+const ID_RAIZ_FICHAS      = "1YG1LMk8D0zYWib7YqnH9q3XudZZY4_cY";
 
 // =============================================================================
 // CASO A: ENVIAR SOLO FICHAS TÉCNICAS
@@ -23,10 +27,10 @@ function enviarFichasCliente() {
   let pdfName = "";
 
   try {
-    const folder = getFirstFolderByName_(folderName);
-    if (!folder) throw new Error('No encontré una carpeta en Drive con el nombre: "' + folderName + '".');
+    const folderFichas = getSubfolderInParent_(ID_RAIZ_FICHAS, folderName);
+    if (!folderFichas) throw new Error('No encontré la carpeta "' + folderName + '" dentro de la raíz de Fichas.');
 
-    const itFiles = folder.getFilesByType(MimeType.PDF);
+    const itFiles = folderFichas.getFilesByType(MimeType.PDF);
     const attachments = [];
     const pdfNames = [];
 
@@ -36,7 +40,7 @@ function enviarFichasCliente() {
       pdfNames.push(f.getName());
     }
 
-    if (attachments.length === 0) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
+    if (attachments.length === 0) throw new Error('No encontré ningún PDF dentro de la carpeta de Fichas: "' + folderName + '".');
     pdfName = pdfNames.join(", ");
 
     const plainBodyBase =
@@ -100,11 +104,11 @@ function EnviarPropuestaFinalPDFPorCorreo() {
   let pdfName = "";
 
   try {
-    const folder = getFirstFolderByName_(folderName);
-    if (!folder) throw new Error('No encontré una carpeta en Drive con el nombre: "' + folderName + '".');
+    const folderPropuestas = getSubfolderInParent_(ID_RAIZ_PROPUESTAS, folderName);
+    if (!folderPropuestas) throw new Error('No encontré la carpeta "' + folderName + '" dentro de la raíz de Propuestas.');
 
-    const pdfFile = findBestPdfInFolder_(folder);
-    if (!pdfFile) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
+    const pdfFile = findBestPdfInFolder_(folderPropuestas);
+    if (!pdfFile) throw new Error('No encontré ningún PDF dentro de la carpeta de Propuestas: "' + folderName + '".');
     pdfName = pdfFile.getName();
 
     const plainBodyBase =
@@ -170,20 +174,33 @@ function enviarPropuestaYFichasCliente() {
   let pdfName = "";
 
   try {
-    const folder = getFirstFolderByName_(folderName);
-    if (!folder) throw new Error('No encontré una carpeta en Drive con el nombre: "' + folderName + '".');
-
-    const itFiles = folder.getFilesByType(MimeType.PDF);
     const attachments = [];
     const pdfNames = [];
 
-    while (itFiles.hasNext()) {
-      const f = itFiles.next();
-      attachments.push(f.getBlob().setName(f.getName()));
-      pdfNames.push(f.getName());
+    // 1. Obtener la propuesta en la raíz de Propuestas
+    const folderPropuestas = getSubfolderInParent_(ID_RAIZ_PROPUESTAS, folderName);
+    if (folderPropuestas) {
+      const pdfProp = findBestPdfInFolder_(folderPropuestas);
+      if (pdfProp) {
+        attachments.push(pdfProp.getBlob().setName(pdfProp.getName()));
+        pdfNames.push(pdfProp.getName());
+      }
     }
 
-    if (attachments.length === 0) throw new Error('No encontré ningún PDF dentro de la carpeta: "' + folderName + '".');
+    // 2. Obtener las fichas en la raíz de Fichas
+    const folderFichas = getSubfolderInParent_(ID_RAIZ_FICHAS, folderName);
+    if (folderFichas) {
+      const itFiles = folderFichas.getFilesByType(MimeType.PDF);
+      while (itFiles.hasNext()) {
+        const f = itFiles.next();
+        attachments.push(f.getBlob().setName(f.getName()));
+        pdfNames.push(f.getName());
+      }
+    }
+
+    if (attachments.length === 0) {
+      throw new Error('No encontré ningún PDF dentro de las carpetas de Propuestas o Fichas para: "' + folderName + '".');
+    }
     pdfName = pdfNames.join(", ");
 
     const plainBodyBase =
@@ -236,6 +253,10 @@ function enviarPropuestaYFichasCliente() {
 // =============================================================================
 
 function pedirDatosEnvio_(ui) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+  const defaultFolder = sheet.getName();
+
   const rNombre = ui.prompt(
     "Nombre del cliente",
     'Escribe el nombre para el saludo (saldrá como "Hola XXX").\nEj: Juan Pérez',
@@ -258,12 +279,12 @@ function pedirDatosEnvio_(ui) {
 
   const rFolder = ui.prompt(
     "Carpeta del cliente (Drive)",
-    "Escribe el nombre exacto de la carpeta donde están los archivos.",
+    'Escribe el nombre exacto de la carpeta.\nSi lo dejas en blanco se usará: "' + defaultFolder + '"',
     ui.ButtonSet.OK_CANCEL
   );
   if (rFolder.getSelectedButton() !== ui.Button.OK) return null;
 
-  const folderName = String(rFolder.getResponseText() || "").trim() || nombreCliente;
+  const folderName = String(rFolder.getResponseText() || "").trim() || defaultFolder;
 
   return { nombreCliente, email, folderName };
 }
@@ -392,11 +413,44 @@ function getOrCreateEnvioLogTable_(sheet, colStart) {
 }
 
 // =============================================================================
-// DRIVE HELPERS
+// DRIVE HELPERS (BÚSQUEDA INTELIGENTE QUE IGNORA LA FECHA AL FINAL)
 // =============================================================================
-function getFirstFolderByName_(name) {
-  const it = DriveApp.getFoldersByName(name);
-  return it.hasNext() ? it.next() : null;
+function getSubfolderInParent_(parentId, folderName, autoCrear = false) {
+  try {
+    const parentFolder = DriveApp.getFolderById(parentId);
+    const subfolders = parentFolder.getFolders();
+    const targetNameClean = folderName.trim().toLowerCase();
+
+    let coincidenciaPorInicio = null;
+
+    while (subfolders.hasNext()) {
+      const sub = subfolders.next();
+      const subNameClean = sub.getName().trim().toLowerCase();
+
+      // 1. Coincidencia Exacta (ej: "prueba01.08")
+      if (subNameClean === targetNameClean) {
+        return sub;
+      }
+
+      // 2. Coincidencia que COMIENZA con el nombre de la pestaña (ej: "prueba01.08 - 02-08-26")
+      if (subNameClean.startsWith(targetNameClean)) {
+        coincidenciaPorInicio = sub; // Guarda la carpeta más reciente que coincida
+      }
+    }
+
+    if (coincidenciaPorInicio) {
+      return coincidenciaPorInicio;
+    }
+
+    // 3. Si no existe ninguna y autoCrear es true, la crea
+    if (autoCrear) {
+      return parentFolder.createFolder(folderName.trim());
+    }
+
+    return null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function findBestPdfInFolder_(folder) {

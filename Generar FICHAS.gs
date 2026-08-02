@@ -1,30 +1,19 @@
 /**
- * GENERADOR AUTOMÁTICO DE FICHAS TÉCNICAS Y AUDITORÍA DE PLANTILLAS
+ * GENERADOR AUTOMÁTICO DE FICHAS PROPUESTAS COMERCIALES (ULTRA RÁPIDO)
+ * Sin recorridos de Google Drive / Slides. Consume las plantillas directo del Inventario.
  */
 
-// IDs DE CARPETAS DE DRIVE
-const CARPETA_ORIGEN_ID          = '1xSLs5GHRHbm9OMJwQldxmipNIhPT8eVc'; // 5. MODELOS FICHAS POR ESTADO
-const FOLDER_MAESTRA_INV_ID     = '1E9291Gm9a2wdYRqL9uglDUTLNxojfelb'; // 0. FICHAS (Activas)
-const FOLDER_NO_DISPONIBLES_ID  = '18xPP1HXcOoMUv_CtVIzYKRqZwxTAvmXv'; // 7. NO DISPONIBLES FICHAS PASADAS (Resguardo)
-
-// URL DE LA WEBAPP DE INVENTARIO
-const INVENTARIO_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzpUroVXu87JyY05EZ9MvF9gc1vI5ljsQ-gPgDgANIMkVwMoVxe88L7EghjFTdrn3pUxA/exec";
+const FOLDER_MAESTRA_INV_ID     = '1E9291Gm9a2wdYRqL9uglDUTLNxojfelb'; // FICHAS (Activas)
+const INVENTARIO_WEB_APP_URL    = "https://script.google.com/macros/s/AKfycbzpUroVXu87JyY05EZ9MvF9gc1vI5ljsQ-gPgDgANIMkVwMoVxe88L7EghjFTdrn3pUxA/exec";
 
 const ABREVIATURAS_ESTADO = {
-  "BAJA CALIFORNIA": "BC", 
-  "GUANAJUATO": "GTO", 
-  "NUEVO LEÓN": "NL", 
-  "NUEVO LEON": "NL",
-  "QUERÉTARO": "QRO", 
-  "QUERETARO": "QRO", 
-  "QUINTANA ROO": "Q. ROO", 
-  "SAN LUIS POTOSÍ": "SLP", 
-  "SAN LUIS POTOSI": "SLP"
+  "BAJA CALIFORNIA": "BC", "GUANAJUATO": "GTO", "NUEVO LEÓN": "NL", "NUEVO LEON": "NL",
+  "QUERÉTARO": "QRO", "QUERETARO": "QRO", "QUINTANA ROO": "Q. ROO", "SAN LUIS POTOSÍ": "SLP", "SAN LUIS POTOSI": "SLP"
 };
 
 function generarFichasPropuestasComerciales() {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(5000)) {
+  if (!lock.tryLock(3000)) {
     SpreadsheetApp.getUi().alert("⚠️ El proceso ya se está ejecutando. Por favor, espera a que termine.");
     return;
   }
@@ -33,7 +22,7 @@ function generarFichasPropuestasComerciales() {
     const ui = SpreadsheetApp.getUi();
     const respuesta = ui.alert(
       'Confirmación de generación',
-      '¿Estás seguro de que deseas generar las fichas y actualizar el inventario?',
+      '¿Deseas procesar la tabla? Las REFs con ficha vinculada serán ignoradas por completo.',
       ui.ButtonSet.YES_NO
     );
 
@@ -42,8 +31,6 @@ function generarFichasPropuestasComerciales() {
     const ssActive = SpreadsheetApp.getActiveSpreadsheet();
     const sheetPropCom = ssActive.getActiveSheet();
     let rawData = sheetPropCom.getDataRange().getDisplayValues();
-
-    console.log("=== INICIO DE PROCESO DE GENERACIÓN DE FICHAS ===");
 
     let headerRowIdx = -1;
     for (let r = 0; r < rawData.length; r++) {
@@ -61,18 +48,13 @@ function generarFichasPropuestasComerciales() {
 
     let headers = rawData[headerRowIdx].map(h => h.toString().trim().toLowerCase());
 
-    let colMantenimiento = headers.findIndex(h => h.includes("mantenimiento"));
+    // Columna Plantilla
     let colPlantillaIdx = headers.indexOf("plantilla");
-
     if (colPlantillaIdx === -1) {
-      if (colMantenimiento !== -1) {
-        colPlantillaIdx = colMantenimiento + 1;
-        sheetPropCom.insertColumnAfter(colMantenimiento + 1);
-      } else {
-        colPlantillaIdx = headers.length;
-        sheetPropCom.insertColumnAfter(headers.length);
-      }
-      sheetPropCom.getRange(headerRowIdx + 1, colPlantillaIdx + 1)
+      let colMantenimiento = headers.findIndex(h => h.includes("mantenimiento"));
+      let targetCol = colMantenimiento !== -1 ? colMantenimiento + 1 : headers.length;
+      sheetPropCom.insertColumnAfter(targetCol);
+      sheetPropCom.getRange(headerRowIdx + 1, targetCol + 1)
         .setValue("Plantilla")
         .setFontWeight("bold")
         .setHorizontalAlignment("center");
@@ -103,23 +85,11 @@ function generarFichasPropuestasComerciales() {
       return;
     }
 
-    const colTargetExplicacion = col.ficha > 0 ? (col.ficha - 1) : (col.ref > 0 ? col.ref - 1 : -1);
+    const colTargetExplicacion = col.ficha > 0 ? (col.ficha - 1) : (col.partida > 0 ? col.partida - 1 : -1);
 
-    const datosHermanas = obtenerMapaHermanasWebAPP();
-    const mapaDuo = datosHermanas.mapaDuo || {};
-    const mapaParqueSolo = datosHermanas.mapaParqueSolo || {};
-
-    const cacheCarpetasEstado = {};
-    const cacheModelosPorEstado = {};
-
-    let folderOrigenMaestra = null;
-    try {
-      if (CARPETA_ORIGEN_ID) folderOrigenMaestra = DriveApp.getFolderById(CARPETA_ORIGEN_ID);
-    } catch (eDrive) {
-      console.warn("No se pudo acceder a CARPETA_ORIGEN_ID.");
-    }
-
-    let procesadasConFicha = 0, refsNuevasConFicha = 0, refsNuevasSinFicha = 0, existSinFicha = 0, errores = 0;
+    // FILTRAR FILAS A PROCESAR
+    const filasAProcesar = [];
+    let ignoradasConLink = 0;
 
     for (let i = headerRowIdx + 1; i < rawData.length; i++) {
       const row = rawData[i];
@@ -128,15 +98,49 @@ function generarFichasPropuestasComerciales() {
 
       const numFilaReal = i + 1;
       const celdaRefRango = sheetPropCom.getRange(numFilaReal, col.ref + 1);
-      const celdaPlantillaRango = sheetPropCom.getRange(numFilaReal, col.plantilla + 1);
-      const celdaStatusRango = colTargetExplicacion !== -1 ? sheetPropCom.getRange(numFilaReal, colTargetExplicacion + 1) : null;
+      const richTextRef = celdaRefRango.getRichTextValue();
+      const tieneLinkActivo = richTextRef && richTextRef.getLinkUrl() && richTextRef.getLinkUrl().trim() !== "";
+
+      // IGNORAR SI YA TIENE LINK
+      if (tieneLinkActivo) {
+        ignoradasConLink++;
+        continue;
+      }
 
       let refTexto = celdaRefRango.getValue().toString().trim();
       const esSolicitudCrear = refTexto.toUpperCase() === "CREAR";
-      const tieneRefExistente = refTexto && !esSolicitudCrear && refTexto.toLowerCase() !== "seleccionar...";
 
-      if (!esSolicitudCrear && !tieneRefExistente) continue;
+      if (!esSolicitudCrear && (!refTexto || refTexto.toLowerCase() === "seleccionar...")) continue;
 
+      filasAProcesar.push({
+        numFilaReal: numFilaReal,
+        row: row,
+        refTexto: refTexto,
+        esSolicitudCrear: esSolicitudCrear,
+        celdaRefRango: celdaRefRango,
+        celdaPlantillaRango: sheetPropCom.getRange(numFilaReal, col.plantilla + 1),
+        celdaStatusRango: colTargetExplicacion !== -1 ? sheetPropCom.getRange(numFilaReal, colTargetExplicacion + 1) : null
+      });
+    }
+
+    if (filasAProcesar.length === 0) {
+      SpreadsheetApp.getUi().alert(`🎉 Proceso finalizado.\n\n🔒 REFs con ficha previa omitidas: ${ignoradasConLink}\nNo hay filas pendientes por procesar.`);
+      return;
+    }
+
+    // 1. OBTENER DATOS DEL INVENTARIO (HERMANAS E ÍNDICE DE PLANTILLAS PRE-CALCULADO)
+    const datosHermanas = obtenerMapaHermanasWebAPP();
+    const mapaDuo = datosHermanas.mapaDuo || {};
+    const mapaParqueSolo = datosHermanas.mapaParqueSolo || {};
+    
+    // Solicitamos los modelos ya indexados desde el Inventario (sin recorrer Drive)
+    const cacheModelos = obtenerIndicePlantillasWebAPP();
+
+    let procesadasConFicha = 0, refsNuevasConFicha = 0, refsNuevasSinFicha = 0, existSinFicha = 0, errores = 0;
+
+    for (const item of filasAProcesar) {
+      const row = item.row;
+      const partidaStr = col.partida !== -1 ? row[col.partida].toString().trim() : "";
       const devStr       = col.desarrollador !== -1 ? row[col.desarrollador].toString().trim() : "";
       const parqStr      = col.parque !== -1 ? row[col.parque].toString().trim() : "";
       const zonaStr      = col.zona !== -1 ? row[col.zona].toString().trim() : "";
@@ -152,63 +156,19 @@ function generarFichasPropuestasComerciales() {
 
       if (!m2Sugerida || numSugM2 === 0 || !precioM2) {
         errores++;
-        if (celdaStatusRango) celdaStatusRango.setValue("⚠️ Faltan datos M2/Precio");
+        if (item.celdaStatusRango) item.celdaStatusRango.setValue("⚠️ Faltan datos M2/Precio");
         continue;
       }
 
-      // CANDADO C: VERIFICAR M2 EXACTOS EN REF EXISTENTE
-      let urlFichaAnteriorParaResguardo = "";
-      if (tieneRefExistente) {
-        const refLimpia = extraerCodigoRefLimpio(refTexto);
-        const datosRef = consultarDatosRefWebAPP(refLimpia);
-
-        if (datosRef.status === "success" && datosRef.encontrado) {
-          urlFichaAnteriorParaResguardo = datosRef.urlFichaAnterior || "";
-          
-          if (datosRef.m2Original > 0 && datosRef.m2Original !== numSugM2) {
-            errores++;
-            const msgError = `❌ Error: La superficie ingresada (${numSugM2} m²) no coincide con la superficie original de la REF ${refLimpia} (${datosRef.m2Original} m²)`;
-            if (celdaStatusRango) celdaStatusRango.setValue(msgError);
-            console.warn(msgError);
-            continue;
-          }
-        }
-      }
-
-      // INDEXAR PLANTILLAS DEL ESTADO
-      const claveEstado = estadoStr.toLowerCase().replace(/[^a-z]/g, '');
-      if (!cacheModelosPorEstado[claveEstado]) {
-        cacheModelosPorEstado[claveEstado] = [];
-        let folderEstadoModelos = cacheCarpetasEstado[claveEstado];
-
-        if (!folderEstadoModelos && folderOrigenMaestra) {
-          const subfolders = folderOrigenMaestra.getFolders();
-          while (subfolders.hasNext()) {
-            const sub = subfolders.next();
-            const nombreLimpio = sub.getName().toLowerCase().replace(/[^a-z]/g, '');
-            if (nombreLimpio.includes(claveEstado) || claveEstado.includes(nombreLimpio.replace("fichas", ""))) {
-              folderEstadoModelos = sub;
-              cacheCarpetasEstado[claveEstado] = sub;
-              break;
-            }
-          }
-        }
-
-        const carpetaABuscar = folderEstadoModelos || folderOrigenMaestra;
-        if (carpetaABuscar) {
-          indexarCarpetaDirecta(carpetaABuscar, cacheModelosPorEstado[claveEstado]);
-        }
-      }
-
-      const cacheModelos = cacheModelosPorEstado[claveEstado] || [];
-
-      // BUSCAR MODELO
+      // 2. BUSCAR MODELO EN MEMORIA (INSTANTÁNEO)
       let modeloEncontrado = null;
       let refCoincidente = "";
       let esPorHermana = false;
 
+      const tieneRefExistente = item.refTexto && !item.esSolicitudCrear;
+
       if (tieneRefExistente) {
-        const refLimpia = extraerCodigoRefLimpio(refTexto);
+        const refLimpia = extraerCodigoRefLimpio(item.refTexto);
         modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.refsEncontradas.includes(refLimpia));
         if (modeloEncontrado) refCoincidente = refLimpia;
       }
@@ -228,7 +188,7 @@ function generarFichasPropuestasComerciales() {
         }
       }
 
-      // COLUMNA PLANTILLA
+      // Escribir celda Plantilla
       if (modeloEncontrado) {
         const slideUrl = `https://docs.google.com/presentation/d/${modeloEncontrado.fileId}/edit#slide=id.${modeloEncontrado.slideObjectId || ""}`;
         const labelPlantilla = esPorHermana ? `Sí (Hermana: ${refCoincidente})` : `Sí (${refCoincidente})`;
@@ -238,14 +198,14 @@ function generarFichasPropuestasComerciales() {
           .setLinkUrl(0, labelPlantilla.length, slideUrl)
           .build();
 
-        celdaPlantillaRango
+        item.celdaPlantillaRango
           .setRichTextValue(richValuePlantilla)
           .setFontColor("#1155cc")
           .setFontLine("underline")
           .setFontWeight("bold")
           .setHorizontalAlignment("center");
       } else {
-        celdaPlantillaRango
+        item.celdaPlantillaRango
           .setValue("No")
           .setFontColor("#cc0000")
           .setFontLine("none")
@@ -253,26 +213,86 @@ function generarFichasPropuestasComerciales() {
           .setHorizontalAlignment("center");
       }
 
-      // CREAR O ASIGNAR REF
+     // 3. VALIDAR O CREAR REF
       let refFinal = "";
       let esRefRecienCreada = false;
+      let urlPdfExistente = "";
 
       if (tieneRefExistente) {
-        refFinal = refTexto;
-      } else if (esSolicitudCrear) {
+        refFinal = item.refTexto;
+        const refLimpia = extraerCodigoRefLimpio(item.refTexto);
+        const datosRef = consultarDatosRefWebAPP(refLimpia);
+
+        if (datosRef.status === "success" && datosRef.encontrado) {
+          if (datosRef.m2Original > 0 && datosRef.m2Original !== numSugM2) {
+            errores++;
+            const msgError = `❌ Error: La superficie ingresada (${numSugM2} m²) no coincide con la superficie original de la REF ${refLimpia} (${datosRef.m2Original} m²)`;
+            if (item.celdaStatusRango) item.celdaStatusRango.setValue(msgError);
+            continue;
+          }
+          
+          // 1. Intentar obtener PDF desde la WebApp
+          const posibleUrl = datosRef.ficha || datosRef.urlPdf || datosRef.linkFicha || datosRef.link || "";
+          if (posibleUrl && posibleUrl.toString().trim().startsWith("http")) {
+            urlPdfExistente = posibleUrl.toString().trim();
+          }
+        }
+
+        // 2. RESPALDO DIRECTO EN DRIVE: Si la WebApp no dio URL, buscamos si ya existe el PDF en la carpeta del Inventario
+        if (!urlPdfExistente) {
+          try {
+            const folderOperacionInv = obtenerCarpetaOperacionInventario(operacionStr);
+            const folderEstadoInv = obtenerOCrearSubcarpeta(folderOperacionInv, estadoStr.toUpperCase());
+            const archivos = folderEstadoInv.getFiles();
+
+            while (archivos.hasNext()) {
+              const file = archivos.next();
+              const nombreArch = file.getName().toUpperCase();
+              // Verifica que sea el PDF de esa REF exacta y que no sea un "No disponible"
+              if (nombreArch.endsWith(`${refLimpia}.PDF`) && !nombreArch.includes("NO DISPONIBLE")) {
+                urlPdfExistente = file.getUrl();
+                // Aprovechamos y actualizamos la WebApp para que ya lo sepa
+                actualizarFichaEnInventarioWebAPP(refLimpia, urlPdfExistente);
+                break;
+              }
+            }
+          } catch (errDrive) {
+            // Si falla la búsqueda en Drive, continuará con la generación
+          }
+        }
+
+      } else if (item.esSolicitudCrear) {
         const resCrear = solicitarNuevaRefWebAPP(parqStr, numSugM2, operacionStr, precioM2);
         
         if (resCrear.status !== "success" || !resCrear.nuevaRef) {
           errores++;
           const msgErr = resCrear.message ? `❌ ${resCrear.message}` : "❌ Error WebApp al crear REF";
-          if (celdaStatusRango) celdaStatusRango.setValue(msgErr);
+          if (item.celdaStatusRango) item.celdaStatusRango.setValue(msgErr);
           continue;
         }
         refFinal = resCrear.nuevaRef;
         esRefRecienCreada = true;
       }
 
-      // GENERACIÓN DE PDF
+      // 4. VINCULAR O GENERAR PDF DE LA FICHA
+      
+      // CASO A: REUTILIZAR FICHA EXISTENTE (WEBAPP O ENCONTRADA EN DRIVE)
+      if (urlPdfExistente !== "") {
+        const richValueRef = SpreadsheetApp.newRichTextValue()
+          .setText(refFinal)
+          .setLinkUrl(0, refFinal.length, urlPdfExistente)
+          .build();
+
+        item.celdaRefRango.clearDataValidations();
+        item.celdaRefRango.setRichTextValue(richValueRef);
+        item.celdaRefRango.setFontLine("underline").setFontColor("#1155cc");
+
+        procesadasConFicha++;
+        if (item.celdaStatusRango) item.celdaStatusRango.setValue("✅ Ficha recuperada del Inventario");
+        continue;
+      }
+
+      // CASO B: NO EXISTE PDF, GENERAR UNO NUEVO
       if (modeloEncontrado) {
         let pdfGeneradoExito = false;
         let detalleError = "";
@@ -280,18 +300,12 @@ function generarFichasPropuestasComerciales() {
         try {
           const zonaSubzonaLimpia = (subzonaStr || zonaStr).toUpperCase();
           const estadoAbreviado = obtenerEstadoFormateado(estadoStr);
-          
-          // FORMATO SIN SEPARADOR DE MILES EN EL TÍTULO (ej: 60000 M2)
           const m2EnteroSinSeparador = Math.round(numSugM2).toString();
           const nombreInventario = `${operacionStr.toUpperCase()} ${m2EnteroSinSeparador} M2 ${zonaSubzonaLimpia} ${estadoAbreviado} ${refFinal}`.toUpperCase();
 
           const folderOperacionInv = obtenerCarpetaOperacionInventario(operacionStr);
           const folderEstadoInv = obtenerOCrearSubcarpeta(folderOperacionInv, estadoStr.toUpperCase());
 
-          // LIMPIEZA DE DUPLICADOS EN LA CARPETA Y RESGUARDO OBLIGATORIO PREVIO
-          limpiarDuplicadosYResguardar(folderEstadoInv, refFinal, urlFichaAnteriorParaResguardo, operacionStr, estadoStr);
-
-          // Generar nuevo PDF
           const pdfBlob = generarPdfDesdeModelo(
             modeloEncontrado, partidaStr, m2Sugerida, precioM2, precioTotal,
             refFinal, cacheModelos
@@ -302,66 +316,57 @@ function generarFichasPropuestasComerciales() {
           const urlPdfInv = pdfFileInv.getUrl();
 
           if (urlPdfInv) {
-            // A) Actualizar hipervínculo REF en hoja local de Trabajo
             const richValueRef = SpreadsheetApp.newRichTextValue()
               .setText(refFinal)
               .setLinkUrl(0, refFinal.length, urlPdfInv)
               .build();
 
-            celdaRefRango.clearDataValidations();
-            celdaRefRango.setRichTextValue(richValueRef);
-            celdaRefRango.setFontLine("underline").setFontColor("#1155cc");
+            item.celdaRefRango.clearDataValidations();
+            item.celdaRefRango.setRichTextValue(richValueRef);
+            item.celdaRefRango.setFontLine("underline").setFontColor("#1155cc");
 
-            // B) Enviar a la WebApp para actualizar columna FICHA en Inventario Naves
             actualizarFichaEnInventarioWebAPP(refFinal, urlPdfInv);
-
             pdfGeneradoExito = true;
           }
 
         } catch (err) {
           detalleError = err.toString();
-          console.error(`Error PDF Fila ${numFilaReal}: ` + detalleError);
         }
 
         if (pdfGeneradoExito) {
           procesadasConFicha++;
           if (esRefRecienCreada) {
             refsNuevasConFicha++;
-            if (celdaStatusRango) celdaStatusRango.setValue("✅ REF creada en Inventario con FICHA");
+            if (item.celdaStatusRango) item.celdaStatusRango.setValue("✅ REF creada en Inventario con FICHA");
           } else {
-            if (celdaStatusRango) celdaStatusRango.setValue("✅ Ficha actualizada en inventario");
+            if (item.celdaStatusRango) item.celdaStatusRango.setValue("✅ Ficha asignada correctamente");
           }
         } else {
           errores++;
-          const msjCorto = detalleError.length > 35 ? detalleError.substring(0, 35) + "..." : detalleError;
-          if (celdaStatusRango) celdaStatusRango.setValue(`❌ Error PDF: ${msjCorto}`);
+          if (item.celdaStatusRango) item.celdaStatusRango.setValue(`❌ Error PDF: ${detalleError.substring(0, 30)}`);
         }
 
       } else {
         if (esRefRecienCreada) {
-          celdaRefRango.clearDataValidations();
-          celdaRefRango.setValue(refFinal);
-          celdaRefRango.setFontLine("none").setFontColor("#000000");
+          item.celdaRefRango.clearDataValidations();
+          item.celdaRefRango.setValue(refFinal);
+          item.celdaRefRango.setFontLine("none").setFontColor("#000000");
           refsNuevasSinFicha++;
-          if (celdaStatusRango) celdaStatusRango.setValue("ℹ️ REF creada en Inventario (Sin Ficha PDF)");
+          if (item.celdaStatusRango) item.celdaStatusRango.setValue("ℹ️ REF creada en Inventario (Sin Ficha PDF)");
         } else {
           existSinFicha++;
-          if (celdaStatusRango) celdaStatusRango.setValue("⚠️ Sin modelo, Ficha NO ACTUALIZADA");
+          if (item.celdaStatusRango) item.celdaStatusRango.setValue("⚠️ Sin modelo de plantilla encontrado");
         }
       }
     }
 
-    // RESUMEN FINAL
-    const totalRefsCreadas = refsNuevasConFicha + refsNuevasSinFicha;
+    // RESUMEN
     SpreadsheetApp.getUi().alert(
       `🎉 Proceso finalizado.\n\n` +
-      `🆔 REFs creadas en WebApp: ${totalRefsCreadas}\n` +
-      `   ├─ CON ficha PDF: ${refsNuevasConFicha}\n` +
-      `   └─ SIN ficha PDF: ${refsNuevasSinFicha}\n\n` +
-      `📄 Total fichas PDF generadas: ${procesadasConFicha}\n` +
-      `⚠️ Sin plantilla encontrada: ${existSinFicha}\n` +
-      `❌ Errores / Bloqueados por Candado: ${errores}\n\n` +
-      `📌 Proceso completado. Revisa la columna Ficha.`
+      `🆔 Nuevas REFs creadas: ${refsNuevasConFicha + refsNuevasSinFicha}\n` +
+      `📄 Fichas PDF generadas: ${procesadasConFicha}\n` +
+      `🔒 REFs con ficha previa omitidas: ${ignoradasConLink}\n` +
+      `❌ Errores / Discrepancias: ${errores}`
     );
 
   } finally {
@@ -370,7 +375,7 @@ function generarFichasPropuestasComerciales() {
 }
 
 // ==========================================
-// CONEXIONES CON WEBAPP DE INVENTARIO
+// PETICIONES A LA WEBAPP (SIN RECORRER DRIVE)
 // ==========================================
 
 function obtenerMapaHermanasWebAPP() {
@@ -380,8 +385,18 @@ function obtenerMapaHermanasWebAPP() {
     const json = JSON.parse(response.getContentText());
     return json.status === "success" ? json : { mapaDuo: {}, mapaParqueSolo: {} };
   } catch (e) {
-    console.error("Error obteniendo hermanas: " + e.toString());
     return { mapaDuo: {}, mapaParqueSolo: {} };
+  }
+}
+
+function obtenerIndicePlantillasWebAPP() {
+  try {
+    const url = INVENTARIO_WEB_APP_URL + "?action=obtenerIndicePlantillas";
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const json = JSON.parse(response.getContentText());
+    return (json.status === "success" && json.modelos) ? json.modelos : [];
+  } catch (e) {
+    return [];
   }
 }
 
@@ -391,7 +406,6 @@ function consultarDatosRefWebAPP(ref) {
     const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     return JSON.parse(response.getContentText());
   } catch (e) {
-    console.error("Error consultando REF en WebApp: " + e.toString());
     return { status: "error" };
   }
 }
@@ -410,7 +424,6 @@ function solicitarNuevaRefWebAPP(parque, m2, operacion, precioM2) {
     const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     return JSON.parse(response.getContentText());
   } catch (e) {
-    console.error("Error en solicitarNuevaRefWebAPP: " + e.toString());
     return { status: "error", message: e.toString() };
   }
 }
@@ -422,87 +435,8 @@ function actualizarFichaEnInventarioWebAPP(ref, urlPdf) {
       + "&ref=" + encodeURIComponent(ref)
       + "&urlPdf=" + encodeURIComponent(urlPdf);
 
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    return JSON.parse(response.getContentText());
-  } catch (e) {
-    console.error("Error enviando Ficha a Inventario: " + e.toString());
-    return null;
-  }
-}
-
-// ==========================================
-// LIMPIEZA Y RESGUARDO DE DUPLICADOS EN DRIVE
-// ==========================================
-
-function limpiarDuplicadosYResguardar(folderActiva, refBuscada, urlPrevia, operacion, estado) {
-  if (!folderActiva || !refBuscada) return;
-
-  const refUpper = refBuscada.toUpperCase();
-  const files = folderActiva.getFiles();
-
-  while (files.hasNext()) {
-    const file = files.next();
-    const nameUpper = file.getName().toUpperCase();
-
-    // Si el archivo existente en la carpeta activa contiene la REF (ej. N3242)
-    if (nameUpper.includes(refUpper) && nameUpper.endsWith(".PDF")) {
-      moverAResguardo(file, operacion, estado);
-    }
-  }
-
-  // Si había una URL registrada previamente que estaba en otra carpeta
-  if (urlPrevia) {
-    try {
-      const matchId = urlPrevia.match(/[-\w]{25,}/);
-      if (matchId) {
-        const filePrevio = DriveApp.getFileById(matchId[0]);
-        if (filePrevio && !filePrevio.getName().startsWith("No disponible -")) {
-          moverAResguardo(filePrevio, operacion, estado);
-        }
-      }
-    } catch (e) {}
-  }
-}
-
-function moverAResguardo(file, operacion, estado) {
-  if (!FOLDER_NO_DISPONIBLES_ID || !file) return;
-
-  try {
-    if (file.getName().startsWith("No disponible -")) return;
-
-    const folderResguardoRaiz = DriveApp.getFolderById(FOLDER_NO_DISPONIBLES_ID);
-    const opUpper = (operacion || "").toUpperCase();
-    const nombreSubOp = opUpper.includes("VENTA") ? "2. NO DISPONIBLES - VENTA NAVES" : "1. NO DISPONIBLES - RENTA NAVES";
-    const folderOpResguardo = obtenerOCrearSubcarpeta(folderResguardoRaiz, nombreSubOp);
-    const folderEstadoResguardo = obtenerOCrearSubcarpeta(folderOpResguardo, (estado || "EDOMEX").toUpperCase());
-
-    const nombreOriginal = file.getName();
-    file.setName(`No disponible - ${nombreOriginal}`);
-    file.moveTo(folderEstadoResguardo);
-
-    console.log(`Archivo movido a Resguardo: ${file.getName()}`);
-  } catch (e) {
-    console.warn("No se pudo mover archivo a resguardo: " + e.toString());
-  }
-}
-
-// ==========================================
-// AUXILIARES DRIVE Y SLIDES
-// ==========================================
-
-function obtenerOCrearSubcarpeta(parentFolder, nombreSubcarpeta) {
-  if (!parentFolder) return null;
-  const nombreLimpio = (nombreSubcarpeta && nombreSubcarpeta.trim() !== "") ? nombreSubcarpeta.trim() : "EDOMEX";
-  const folders = parentFolder.getFoldersByName(nombreLimpio);
-  return folders.hasNext() ? folders.next() : parentFolder.createFolder(nombreLimpio);
-}
-
-function obtenerCarpetaOperacionInventario(operacion) {
-  if (!FOLDER_MAESTRA_INV_ID) throw new Error("FOLDER_MAESTRA_INV_ID no configurado");
-  const folderMaestra = DriveApp.getFolderById(FOLDER_MAESTRA_INV_ID);
-  const opLimpia = (operacion || "").toUpperCase();
-  const nombreSub = opLimpia.includes("VENTA") ? "2. VENTA NAVES" : "1. RENTA NAVES";
-  return obtenerOCrearSubcarpeta(folderMaestra, nombreSub);
+    UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  } catch (e) {}
 }
 
 function extraerCodigoRefLimpio(texto) {
@@ -522,78 +456,18 @@ function obtenerEstadoFormateado(estado) {
   return ABREVIATURAS_ESTADO[estUpper] || estUpper;
 }
 
-function indexarCarpetaDirecta(carpeta, cacheModelos) {
-  if (!carpeta) return;
+function obtenerCarpetaOperacionInventario(operacion) {
+  const folderMaestra = DriveApp.getFolderById(FOLDER_MAESTRA_INV_ID);
+  const opLimpia = (operacion || "").toUpperCase();
+  const nombreSub = opLimpia.includes("VENTA") ? "2. VENTA NAVES" : "1. RENTA NAVES";
+  return obtenerOCrearSubcarpeta(folderMaestra, nombreSub);
+}
 
-  let files = carpeta.getFilesByType(MimeType.GOOGLE_SLIDES);
-  while (files.hasNext()) {
-    const file = files.next();
-    try {
-      const deck = SlidesApp.openById(file.getId());
-      const slides = deck.getSlides();
-
-      for (let i = 0; i < slides.length; i++) {
-        try {
-          const textoCompleto = extraerTodoElTexto(slides[i]);
-          const tieneVariables = textoCompleto.includes("{{M2 de construcción}}") || 
-                                 textoCompleto.includes("{{Precio total}}") || 
-                                 textoCompleto.includes("{{Asking price /m2}}");
-
-          const matchesRef = textoCompleto.match(/N\d+/g) || [];
-          const refsEncontradas = matchesRef.map(r => r.toUpperCase());
-
-          if (refsEncontradas.length > 0) {
-            cacheModelos.push({
-              fileId: file.getId(),
-              fileName: file.getName(),
-              slideIdx: i,
-              slideObjectId: slides[i].getObjectId(),
-              textoRaw: textoCompleto,
-              refsEncontradas: refsEncontradas,
-              tieneVariables: tieneVariables
-            });
-          }
-        } catch (eSlide) {}
-      }
-    } catch (eFile) {}
-  }
-
-  let subFolders = carpeta.getFolders();
-  while (subFolders.hasNext()) {
-    let sub = subFolders.next();
-    let subFiles = sub.getFilesByType(MimeType.GOOGLE_SLIDES);
-    while (subFiles.hasNext()) {
-      const file = subFiles.next();
-      try {
-        const deck = SlidesApp.openById(file.getId());
-        const slides = deck.getSlides();
-
-        for (let i = 0; i < slides.length; i++) {
-          try {
-            const textoCompleto = extraerTodoElTexto(slides[i]);
-            const tieneVariables = textoCompleto.includes("{{M2 de construcción}}") || 
-                                   textoCompleto.includes("{{Precio total}}") || 
-                                   textoCompleto.includes("{{Asking price /m2}}");
-
-            const matchesRef = textoCompleto.match(/N\d+/g) || [];
-            const refsEncontradas = matchesRef.map(r => r.toUpperCase());
-
-            if (refsEncontradas.length > 0) {
-              cacheModelos.push({
-                fileId: file.getId(),
-                fileName: file.getName(),
-                slideIdx: i,
-                slideObjectId: slides[i].getObjectId(),
-                textoRaw: textoCompleto,
-                refsEncontradas: refsEncontradas,
-                tieneVariables: tieneVariables
-              });
-            }
-          } catch (eSlide) {}
-        }
-      } catch (eFile) {}
-    }
-  }
+function obtenerOCrearSubcarpeta(parentFolder, nombreSubcarpeta) {
+  if (!parentFolder) return null;
+  const nombreLimpio = (nombreSubcarpeta && nombreSubcarpeta.trim() !== "") ? nombreSubcarpeta.trim() : "EDOMEX";
+  const folders = parentFolder.getFoldersByName(nombreLimpio);
+  return folders.hasNext() ? folders.next() : parentFolder.createFolder(nombreLimpio);
 }
 
 function extraerTodoElTexto(slide) {
@@ -684,10 +558,10 @@ function generarPdfDesdeModelo(modelo, partida, m2, precio, precioTotal, refNuev
   });
 
   nuevaDeck.saveAndClose();
-  Utilities.sleep(1000);
+  Utilities.sleep(300);
 
   const pdfBlob = copiaFile.getAs(MimeType.PDF);
-  copiaFile.setTrashed(true);
+  DriveApp.getFileById(copiaFile.getId()).setTrashed(true);
 
   return pdfBlob;
 }
