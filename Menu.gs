@@ -14,7 +14,7 @@ function onOpen() {
     .addSeparator()    
     
     // --- GESTIÓN DE FICHAS Y DOCUMENTACIÓN ---
-    .addItem("5a. 📋 Generar Fichas en Inventario", "generarFichasPropuestasComerciales")
+    .addItem("5a. 📋 Generar Fichas y REF en Inventario", "generarFichasPropuestasComerciales")
     .addItem("5b. 📁 Preparar Carpeta del Cliente", "prepararCliente")
     .addSeparator()
     

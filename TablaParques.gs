@@ -382,23 +382,36 @@ function onEdit(e) {
 
   const selectedValue = String(range.getValue()).trim();
 
-  // Función auxiliar para buscar si la REF seleccionada tiene un link en la columna FICHA
+// Función auxiliar para gestionar la REF sin eliminar enlaces asignados o pegados
   const aplicarRefConLink = (refTargetCell, cleanRefStr) => {
-    let fichaCell = sheet.getRange(editedRow, colFicha);
-    let fichaRichText = fichaCell.getRichTextValue();
-    let targetUrl = "";
+    // 1. PRIMERA CAPA DE SEGURIDAD:
+    // Si la celda REF ya cuenta con un hipervínculo (pegado manual o generado por script),
+    // se respeta intacto y se detiene la ejecución para no borrarlo.
+    let existingRichText = refTargetCell.getRichTextValue();
+    if (existingRichText && existingRichText.getLinkUrl()) {
+      return;
+    }
 
-    if (fichaRichText) {
-      let runs = fichaRichText.getRuns();
-      for (let run of runs) {
-        if (run.getText().trim() === cleanRefStr && run.getLinkUrl()) {
-          targetUrl = run.getLinkUrl();
-          break;
+    // 2. BÚSQUEDA DE ENLACE SECUNDARIO (En columna FICHA)
+    let targetUrl = "";
+    if (colFicha) {
+      let fichaCell = sheet.getRange(editedRow, colFicha);
+      let fichaRichText = fichaCell.getRichTextValue();
+
+      if (fichaRichText) {
+        let runs = fichaRichText.getRuns();
+        for (let run of runs) {
+          if (run.getText().trim() === cleanRefStr && run.getLinkUrl()) {
+            targetUrl = run.getLinkUrl();
+            break;
+          }
         }
       }
     }
 
+    // 3. ASIGNACIÓN DE FORMATO
     if (targetUrl) {
+      // Si se halló una URL en la columna Ficha, se le aplica a la REF
       let richVal = SpreadsheetApp.newRichTextValue()
         .setText(cleanRefStr)
         .setLinkUrl(0, cleanRefStr.length, targetUrl)
@@ -406,11 +419,12 @@ function onEdit(e) {
       refTargetCell.setRichTextValue(richVal);
       refTargetCell.setFontLine("underline").setFontColor("#1155cc");
     } else {
+      // Si no traía link propio ni había uno en Ficha, se deja únicamente como texto
       refTargetCell.setValue(cleanRefStr);
       refTargetCell.setFontLine("none").setFontColor("#000000");
     }
   };
-
+  
   // A) INTERACCIÓN EN COLUMNA REF
   if (editedCol === colRef && selectedValue && selectedValue !== "Seleccionar...") {
     let refMatch = selectedValue.match(/^([^\s(]+)/);
@@ -427,8 +441,12 @@ function onEdit(e) {
         sheet.getRange(editedRow, colSugM2).setValue(numM2);
       }
     }
-    // Quitar icono del desplegable
+// Preservar enlace existente si la celda ya tenía RichText antes de quitar la validación
+    let currentRichText = range.getRichTextValue();
     range.clearDataValidations();
+    if (currentRichText && currentRichText.getLinkUrl()) {
+      range.setRichTextValue(currentRichText);
+    }
   }
 
   // B) INTERACCIÓN EN COLUMNA FICHA
