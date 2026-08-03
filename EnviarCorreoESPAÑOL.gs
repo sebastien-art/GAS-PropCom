@@ -400,14 +400,7 @@ function getOrCreateEnvioLogTable_(sheet, colStart) {
     .setValues([headers])
     .setFontWeight("bold");
 
-  try {
-    sheet.setColumnWidth(colStart + 0, 180);
-    sheet.setColumnWidth(colStart + 1, 220);
-    sheet.setColumnWidth(colStart + 2, 320);
-    sheet.setColumnWidth(colStart + 3, 140);
-    sheet.setColumnWidth(colStart + 4, 220);
-    sheet.setColumnWidth(colStart + 5, 200);
-  } catch (e) {}
+  // SE REMOVIERON LOS setColumnWidth PARA RESPETAR EL DISEÑO ORIGINAL DE LA TABLA SUPERIOR
 
   return { titleRow: startRow, headerRow: startRow + 1, colStart: colStart };
 }
