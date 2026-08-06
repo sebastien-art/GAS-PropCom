@@ -128,9 +128,10 @@ function TablaParques() {
   picked.forEach((p, idx) => {
     const devVal = String(p.row[c.dev-1] || "").trim();
     const parqVal = String(p.row[c.parque-1] || "").trim();
-    let k = (!devVal && !parqVal) ? "UNIQUE_" + idx : stripAccents(devVal + "||" + parqVal).toLowerCase();
+    const opVal = c.operacion ? String(p.row[c.operacion-1] || "").trim() : "";
+    let k = (!devVal) ? "UNIQUE_" + idx : stripAccents(devVal + "||" + parqVal + "||" + opVal).toLowerCase();
 
-    if (!groups.has(k)) groups.set(k, { items: [], minM2: null, maxM2: null, isAgrupable: (!!devVal || !!parqVal) });
+    if (!groups.has(k)) groups.set(k, { items: [], minM2: null, maxM2: null, isAgrupable: (!!devVal) });
     const g = groups.get(k); 
     g.items.push(p);
     let val = parseFloat(String(p.row[c.m2-1]).replace(/[^\d.]/g, ""));
@@ -147,7 +148,8 @@ function TablaParques() {
   picked.forEach((p, idx) => {
     const devVal = String(p.row[c.dev-1] || "").trim();
     const parqVal = String(p.row[c.parque-1] || "").trim();
-    let k = (!devVal && !parqVal) ? "UNIQUE_" + idx : stripAccents(devVal + "||" + parqVal).toLowerCase();
+    const opVal = c.operacion ? String(p.row[c.operacion-1] || "").trim() : "";
+    let k = (!devVal) ? "UNIQUE_" + idx : stripAccents(devVal + "||" + parqVal + "||" + opVal).toLowerCase();
     const g = groups.get(k);
 
     if (g.isAgrupable && g.items.length >= 2) {

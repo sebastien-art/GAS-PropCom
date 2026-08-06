@@ -99,7 +99,8 @@ function generarFichasPropuestasComerciales() {
       const numFilaReal = i + 1;
       const celdaRefRango = sheetPropCom.getRange(numFilaReal, col.ref + 1);
       const richTextRef = celdaRefRango.getRichTextValue();
-      const tieneLinkActivo = richTextRef && richTextRef.getLinkUrl() && richTextRef.getLinkUrl().trim() !== "";
+      const urlLink = richTextRef ? richTextRef.getLinkUrl() : null;
+      const tieneLinkActivo = urlLink && urlLink.toString().trim().toLowerCase().startsWith("http");
 
       // IGNORAR SI YA TIENE LINK
       if (tieneLinkActivo) {
@@ -151,6 +152,7 @@ function generarFichasPropuestasComerciales() {
       const precioM2     = row[col.precioM2] ? row[col.precioM2].toString().trim() : "";
       const precioTotal  = col.precioTotal !== -1 && row[col.precioTotal] ? row[col.precioTotal].toString().trim() : "";
       const operacionStr = (col.operacion !== -1 && row[col.operacion]) ? row[col.operacion].toString().trim() : "RENTA";
+      const operacionLimpia = operacionStr.toUpperCase().includes("VENTA") ? "VENTA" : "RENTA";
 
       const numSugM2 = parseFloat(String(m2Sugerida).replace(/[^\d.]/g, "")) || 0;
 
@@ -169,19 +171,34 @@ function generarFichasPropuestasComerciales() {
 
       if (tieneRefExistente) {
         const refLimpia = extraerCodigoRefLimpio(item.refTexto);
-        modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.refsEncontradas.includes(refLimpia));
+        modeloEncontrado = cacheModelos.find(m => {
+          if (!m.refsEncontradas) return false;
+          if (Array.isArray(m.refsEncontradas)) {
+            return m.refsEncontradas.some(r => String(r).trim().toUpperCase() === refLimpia);
+          } else {
+            return String(m.refsEncontradas).trim().toUpperCase().split(",").map(s => s.trim()).includes(refLimpia);
+          }
+        });
         if (modeloEncontrado) refCoincidente = refLimpia;
       }
 
       if (!modeloEncontrado && parqStr) {
-        const kParque = limpiarTextoClave(parqStr);
-        const kDuo = devStr ? `${kParque}|${limpiarTextoClave(devStr)}` : kParque;
+        const kParque = `${limpiarTextoClave(parqStr)}|${operacionLimpia}`;
+        const kDuo = devStr ? `${limpiarTextoClave(parqStr)}|${limpiarTextoClave(devStr)}|${operacionLimpia}` : kParque;
         let hermanasInv = mapaDuo[kDuo] || mapaParqueSolo[kParque] || [];
 
         for (const refHermana of hermanasInv) {
-          modeloEncontrado = cacheModelos.find(m => m.tieneVariables && m.refsEncontradas.includes(refHermana));
+          const refHermanaLimpia = extraerCodigoRefLimpio(refHermana);
+          modeloEncontrado = cacheModelos.find(m => {
+            if (!m.refsEncontradas) return false;
+            if (Array.isArray(m.refsEncontradas)) {
+              return m.refsEncontradas.some(r => String(r).trim().toUpperCase() === refHermanaLimpia);
+            } else {
+              return String(m.refsEncontradas).trim().toUpperCase().split(",").map(s => s.trim()).includes(refHermanaLimpia);
+            }
+          });
           if (modeloEncontrado) {
-            refCoincidente = refHermana;
+            refCoincidente = refHermanaLimpia;
             esPorHermana = true;
             break;
           }
@@ -213,7 +230,7 @@ function generarFichasPropuestasComerciales() {
           .setHorizontalAlignment("center");
       }
 
-     // 3. VALIDAR O CREAR REF
+      // 3. VALIDAR O CREAR REF
       let refFinal = "";
       let esRefRecienCreada = false;
       let urlPdfExistente = "";
@@ -226,7 +243,7 @@ function generarFichasPropuestasComerciales() {
         if (datosRef.status === "success" && datosRef.encontrado) {
           if (datosRef.m2Original > 0 && datosRef.m2Original !== numSugM2) {
             errores++;
-            const msgError = `❌ Error: La superficie ingresada (${numSugM2} m²) no coincide con la superficie original de la REF ${refLimpia} (${datosRef.m2Original} m²)`;
+            const msgError = `❌ Discrepancia M2: Hoja (${numSugM2} m²) vs Inventario (${datosRef.m2Original} m²)`;
             if (item.celdaStatusRango) item.celdaStatusRango.setValue(msgError);
             continue;
           }
@@ -392,9 +409,19 @@ function obtenerMapaHermanasWebAPP() {
 function obtenerIndicePlantillasWebAPP() {
   try {
     const url = INVENTARIO_WEB_APP_URL + "?action=obtenerIndicePlantillas";
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const json = JSON.parse(response.getContentText());
-    return (json.status === "success" && json.modelos) ? json.modelos : [];
+    const response = UrlFetchApp.fetch(url, { 
+      muteHttpExceptions: true,
+      followRedirects: true 
+    });
+    
+    const responseText = response.getContentText();
+    const json = JSON.parse(responseText);
+
+    if (Array.isArray(json)) return json;
+    if (json.modelos && Array.isArray(json.modelos)) return json.modelos;
+    if (json.data && Array.isArray(json.data)) return json.data;
+
+    return [];
   } catch (e) {
     return [];
   }
