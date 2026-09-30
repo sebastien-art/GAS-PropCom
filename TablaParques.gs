@@ -16,7 +16,8 @@ function TablaParques() {
     MANT: ["Mantenimiento / m2"], DISP: ["Disponibilidad"],
     DESARROLLADOR: ["Desarrollador"], PARQUE: ["Parque"], COORD: ["Coordenadas"],
     INTERMEDIARIO: ["Intermediario", "Broker", "Agent"],
-    UBICACION: ["Ubicación", "Ubicacion"]
+    UBICACION: ["Ubicación", "Ubicacion"],
+    PLANTILLAS: ["Plantillas"]
   };
 
   const COL_FICHA = START_COL_TABLE - 2; // Columna B (2)
@@ -26,7 +27,7 @@ function TablaParques() {
     "Partida", "REF", "Zona Principal", "Sub Zona",
     "Superficie sugerida (m2)", "Superficie mínima disponible (m2) **","Superficie máxima disponible (m2) **",
     "Precio por m2 *", "Disponibilidad",
-    "", "Precio total", "Mantenimiento / m2", "Estado",
+    "", "Precio total", "Mantenimiento / m2", "Plantillas", "Estado",
     "Coordenadas", "Parque", "Desarrollador", "Intermediario", "Ubicación", "Operación"
   ];
 
@@ -40,13 +41,14 @@ function TablaParques() {
   const SEP_IDX = 10;
   const PRECIO_TOTAL_IDX = 11;
   const MANT_IDX = 12;
-  const ESTADO_IDX = 13;
-  const COORD_IDX = 14;
-  const PARQUE_IDX = 15;
-  const DEV_IDX = 16;
-  const BROKER_IDX = 17;
-  const UBIC_IDX = 18;
-  const OP_IDX = 19; // Índice asignado a Operación
+  const PLANTILLAS_IDX = 13;
+  const ESTADO_IDX = 14;
+  const COORD_IDX = 15;
+  const PARQUE_IDX = 16;
+  const DEV_IDX = 17;
+  const BROKER_IDX = 18;
+  const UBIC_IDX = 19;
+  const OP_IDX = 20; // Índice asignado a Operación
 
   const stripAccents = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const makeKeys = (s) => {
@@ -95,7 +97,8 @@ function TablaParques() {
     mant: getCol(SRC_HEADERS.MANT), disp: getCol(SRC_HEADERS.DISP),
     dev: getCol(SRC_HEADERS.DESARROLLADOR), parque: getCol(SRC_HEADERS.PARQUE),
     coord: getCol(SRC_HEADERS.COORD), intermediario: getCol(SRC_HEADERS.INTERMEDIARIO),
-    ubic: getCol(SRC_HEADERS.UBICACION)
+    ubic: getCol(SRC_HEADERS.UBICACION),
+    plantillas: getCol(SRC_HEADERS.PLANTILLAS)
   };
 
   const lastRowAll = sheet.getLastRow();
@@ -112,13 +115,28 @@ function TablaParques() {
   const rangeData = sheet.getRange(HEADER_ROW + 1, 1, scanTo - HEADER_ROW, lastColSource);
   const dataValues = rangeData.getValues();
   const dataRichText = rangeData.getRichTextValues();
+  const dataFormulas = rangeData.getFormulas();
 
   const picked = [];
   for (let r = 0; r < dataValues.length; r++) {
     if (String(dataValues[r][c.ref - 1]).trim() !== "") {
       let richText = dataRichText[r][c.ficha - 1];
       let url = richText ? (richText.getLinkUrl() || "") : "";
-      picked.push({ row: dataValues[r], url: url, originalIndex: r });
+      
+      let plantillasUrl = "";
+      let plantillasVal = "";
+      if (c.plantillas) {
+        let pFormula = dataFormulas[r][c.plantillas - 1];
+        let pRich = dataRichText[r][c.plantillas - 1];
+        plantillasVal = dataValues[r][c.plantillas - 1];
+        if (pFormula) {
+          plantillasUrl = pFormula;
+        } else if (pRich && pRich.getLinkUrl()) {
+          plantillasUrl = pRich.getLinkUrl();
+        }
+      }
+
+      picked.push({ row: dataValues[r], url: url, plantillasUrl: plantillasUrl, plantillasVal: plantillasVal, originalIndex: r });
     }
   }
 
@@ -156,6 +174,7 @@ function TablaParques() {
       if (emittedKeys.has(k)) return;
       emittedKeys.add(k);
       const b = g.items[0].row;
+      const firstItem = g.items[0];
       const uniqueCoords = [...new Set(g.items.map(i => String(i.row[c.coord-1]).trim()).filter(x => x))].join(", ");
       const uniqueUbic = [...new Set(g.items.map(i => c.ubic ? String(i.row[c.ubic-1]).trim() : "").filter(x => x))].join(", ");
       const opVal = c.operacion ? String(b[c.operacion-1] || "").trim() : "";
@@ -165,12 +184,12 @@ function TablaParques() {
       const precioTotal = formatPrecioTotal(sugM2, b[c.asking-1]);
 
       tableData.push({
-        partida: partida++, isGroup: true, items: g.items,
+        partida: partida++, isGroup: true, items: g.items, plantillasUrl: firstItem.plantillasUrl, plantillasVal: firstItem.plantillasVal,
         values: [
           b[c.zona-1], b[c.subzona-1],
           sugM2, Math.round(g.minM2), Math.round(g.maxM2),
           b[c.asking-1], b[c.disp-1], "", 
-          precioTotal, b[c.mant-1], estadoVal,
+          precioTotal, b[c.mant-1], "", estadoVal,
           uniqueCoords, b[c.parque-1], b[c.dev-1], b[c.intermediario-1], uniqueUbic, opVal
         ]
       });
@@ -182,11 +201,11 @@ function TablaParques() {
       const estadoVal = c.estado ? String(p.row[c.estado-1] || "").trim() : "";
 
       tableData.push({
-        partida: partida++, isGroup: false, item: p,
+        partida: partida++, isGroup: false, item: p, plantillasUrl: p.plantillasUrl, plantillasVal: p.plantillasVal,
         values: [
           p.row[c.zona-1], p.row[c.subzona-1],
           m2, m2, m2, p.row[c.asking-1], p.row[c.disp-1], "", 
-          precioTotal, p.row[c.mant-1], estadoVal,
+          precioTotal, p.row[c.mant-1], "", estadoVal,
           p.row[c.coord-1], p.row[c.parque-1], p.row[c.dev-1], p.row[c.intermediario-1], ubicVal, opVal
         ]
       });
@@ -281,6 +300,22 @@ function TablaParques() {
     }
 
     sheet.getRange(rowIdx, START_COL_TABLE + 2, 1, rowObj.values.length).setValues([rowObj.values]);
+
+    const plantillasCell = sheet.getRange(rowIdx, START_COL_TABLE + PLANTILLAS_IDX - 1);
+    if (rowObj.plantillasUrl) {
+      if (String(rowObj.plantillasUrl).startsWith("=")) {
+        plantillasCell.setValue(rowObj.plantillasUrl);
+      } else if (rowObj.plantillasVal) {
+        let richVal = SpreadsheetApp.newRichTextValue()
+          .setText(String(rowObj.plantillasVal))
+          .setLinkUrl(0, String(rowObj.plantillasVal).length, rowObj.plantillasUrl)
+          .build();
+        plantillasCell.setRichTextValue(richVal);
+        plantillasCell.setFontLine("underline").setFontColor("#1155cc");
+      }
+    } else if (rowObj.plantillasVal) {
+      plantillasCell.setValue(rowObj.plantillasVal);
+    }
   });
 
   const tableRange = sheet.getRange(startRow, START_COL_TABLE, tableData.length + 1, FINAL_HEADERS.length);
@@ -301,7 +336,7 @@ function TablaParques() {
   sheet.setColumnWidth(START_COL_TABLE, 62);          // Partida (Col D)
   sheet.setColumnWidth(START_COL_TABLE + 1, 70);       // REF (Col E)
 
-  const cols110 = [MIN_IDX, MAX_IDX, ASKING_IDX, MANT_IDX, ESTADO_IDX, DISP_IDX, PRECIO_TOTAL_IDX, COORD_IDX, PARQUE_IDX, BROKER_IDX, UBIC_IDX, OP_IDX];
+  const cols110 = [MIN_IDX, MAX_IDX, ASKING_IDX, MANT_IDX, PLANTILLAS_IDX, ESTADO_IDX, DISP_IDX, PRECIO_TOTAL_IDX, COORD_IDX, PARQUE_IDX, BROKER_IDX, UBIC_IDX, OP_IDX];
   cols110.forEach(idx => { sheet.setColumnWidth(START_COL_TABLE + idx - 1, 110); });
   [ZONA_IDX, SUBZONA_IDX].forEach(idx => { sheet.setColumnWidth(START_COL_TABLE + idx - 1, 150); });
 
